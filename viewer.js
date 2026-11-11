@@ -3,10 +3,14 @@
  const DB = 'markdown-folder-viewer-db', STORE = 'handles';
 
  let rootHandle = null;
- const fileMap = new Map();
+ const fileMap = new Map();       // Markdown path -> file handle (loaded levels only)
+ const dirs = new Map();          // directory path -> sorted child entries (loaded levels only)
+ const dirHandles = new Map();    // directory path -> directory handle
+ const loadingDirs = new Map();   // directory path -> in-flight scan promise
+ const expandedPaths = new Set(); // folders the user has expanded
+ let treeGeneration = 0;          // bumped on reset so stale scans are dropped
  let activePath = null;
  let searchTerm = '';
- const collapsedPaths = new Set(); // folder paths the user has collapsed
  let objectUrls = [];
 
  /* ---------- saved folder handle ---------- */
@@ -55,13 +59,24 @@
   try {
    rootHandle = await window.showDirectoryPicker({ mode: 'read' });
    await saveHandle(rootHandle);
-   collapsedPaths.clear();
    await scanFolder();
   } catch (e) {
    if (e.name !== 'AbortError') showError('Could not open folder: ' + e.message);
   }
  }
 
+ function resetTree() {
+  treeGeneration++;
+  fileMap.clear();
+  dirs.clear();
+  dirHandles.clear();
+  loadingDirs.clear();
+  expandedPaths.clear();
+ }
+
+ // Refresh (and the initial load) only read the top level. Subfolders are
+ // scanned the first time the user expands them, so a large tree never pays
+ // for a full recursive walk up front.
  async function scanFolder() {
   if (!rootHandle) return;
   const ok = await permission(rootHandle, true);
@@ -69,17 +84,18 @@
    showError('Folder permission was not granted. Click “Choose folder” and select it again.');
    return;
   }
-  fileMap.clear();
+  resetTree();
+  dirHandles.set('', rootHandle);
   $('folderName').textContent = rootHandle.name;
   $('tree').innerHTML = '<p class="status">Scanning folder…</p>';
   try {
-   await walk(rootHandle, '');
+   await readDir('', rootHandle);
    renderTree();
    $('refresh').disabled = false;
-   $('fileCount').textContent = fileMap.size + ' files';
    // Always re-open the active file: the folder may have been re-chosen, and a
-   // same-named path in the new folder must not show stale content.
-   const next = activePath && fileMap.has(activePath) ? activePath : pickInitialPath();
+   // same-named path in the new folder must not show stale content. Nested
+   // files are resolved directly, even though their folder is still collapsed.
+   const next = (await fileHandleFor(activePath)) ? activePath : pickInitialPath();
    if (next) await openFile(next);
    else showWelcome();
   } catch (e) {
@@ -88,21 +104,43 @@
  }
 
  // On first open, show a README so the folder's own landing page appears
- // instead of whichever file happens to sort first.
+ // instead of whichever file happens to sort first. Only the top level is
+ // loaded at this point, which is where a landing page normally lives.
  function pickInitialPath() {
-  const paths = [...fileMap.keys()].sort((a, b) => a.localeCompare(b));
-  const readmes = paths
-   .filter(p => /^readme\.md(?:own)?$/i.test(p.split('/').pop()))
-   .sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b));
-  return readmes[0] || paths[0] || null;
+  const names = (dirs.get('') || [])
+   .filter(entry => entry.kind === 'file' && isMarkdown(entry.name))
+   .map(entry => entry.name)
+   .sort((a, b) => a.localeCompare(b));
+  return names.find(name => /^readme\.md(?:own)?$/i.test(name)) || names[0] || null;
  }
 
- async function walk(dir, prefix) {
-  for await (const [name, handle] of dir.entries()) {
-   const path = prefix ? prefix + '/' + name : name;
-   if (handle.kind === 'directory') await walk(handle, path);
-   else if (/\.md(?:own)?$/i.test(name)) fileMap.set(path, handle);
+ function isMarkdown(name) {
+  return /\.md(?:own)?$/i.test(name);
+ }
+
+ async function readDir(path, handle) {
+  const gen = treeGeneration;
+  const entries = [];
+  for await (const [name, child] of handle.entries()) {
+   entries.push({ name, kind: child.kind, handle: child });
   }
+  if (gen !== treeGeneration) return false; // the tree was reset mid-scan
+  const base = path ? path + '/' : '';
+  for (const entry of entries) {
+   const childPath = base + entry.name;
+   if (entry.kind === 'directory') dirHandles.set(childPath, entry.handle);
+   else if (isMarkdown(entry.name)) fileMap.set(childPath, entry.handle);
+  }
+  entries.sort((a, b) => (a.kind === b.kind
+   ? a.name.localeCompare(b.name)
+   : a.kind === 'directory' ? -1 : 1));
+  dirs.set(path, entries);
+  updateCount();
+  return true;
+ }
+
+ function updateCount() {
+  $('fileCount').textContent = fileMap.size + (fileMap.size === 1 ? ' file' : ' files');
  }
 
  /* ---------- sidebar tree ---------- */
@@ -110,83 +148,131 @@
  function renderTree() {
   const tree = $('tree');
   tree.replaceChildren();
-
-  const dirs = {};
-  for (const path of fileMap.keys()) {
-   const parts = path.split('/');
-   let parent = dirs;
-   for (let i = 0; i < parts.length; i++) {
-    if (i === parts.length - 1) parent[parts[i]] = { __file: path };
-    else {
-     parent[parts[i]] = parent[parts[i]] || {};
-     parent = parent[parts[i]];
-    }
-   }
-  }
-
-  const build = (obj, container, prefix) => {
-   for (const name of Object.keys(obj).sort((a, b) => {
-    const ad = !obj[a].__file, bd = !obj[b].__file;
-    return ad === bd ? a.localeCompare(b) : ad ? -1 : 1;
-   })) {
-    const item = obj[name];
-    const path = prefix ? prefix + '/' + name : name;
-
-    if (item.__file) {
-     if (searchTerm && !path.toLowerCase().includes(searchTerm.toLowerCase())) continue;
-     const b = document.createElement('button');
-     b.type = 'button';
-     b.className = 'tree-row' + (activePath === path ? ' active' : '');
-     b.dataset.file = '1';
-     b.dataset.path = path;
-     b.title = path;
-     b.innerHTML = '<span class="fileicon" aria-hidden="true">📄</span><span class="filename"></span>';
-     b.querySelector('.filename').textContent = name;
-     b.addEventListener('click', () => openFile(path));
-     container.appendChild(b);
-     continue;
-    }
-
-    if (searchTerm && !hasMatching(item, path)) continue;
-    const isCollapsed = collapsedPaths.has(path);
-    const wrap = document.createElement('div');
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'tree-row';
-    b.dataset.path = path;
-    b.title = path;
-    b.setAttribute('aria-expanded', String(!isCollapsed));
-    b.innerHTML = '<span class="twisty" aria-hidden="true"></span><span aria-hidden="true">📁</span><span class="filename"></span>';
-    b.querySelector('.filename').textContent = name;
-    b.querySelector('.twisty').textContent = isCollapsed ? '▸' : '▾';
-
-    const children = document.createElement('div');
-    children.className = 'tree-children';
-    children.hidden = isCollapsed;
-
-    b.addEventListener('click', () => {
-     const nowCollapsed = !children.hidden;
-     children.hidden = nowCollapsed;
-     b.setAttribute('aria-expanded', String(!nowCollapsed));
-     b.querySelector('.twisty').textContent = nowCollapsed ? '▸' : '▾';
-     if (nowCollapsed) collapsedPaths.add(path);
-     else collapsedPaths.delete(path);
-    });
-
-    wrap.append(b, children);
-    container.appendChild(wrap);
-    build(item, children, path);
-   }
-  };
-
-  build(dirs, tree);
+  buildLevel('', tree);
   if (!tree.children.length) tree.innerHTML = '<p class="empty">No matching Markdown files.</p>';
  }
 
- function hasMatching(obj, path) {
-  return Object.keys(obj).some(k => obj[k].__file
-   ? (path + '/' + k).toLowerCase().includes(searchTerm.toLowerCase())
-   : hasMatching(obj[k], path + '/' + k));
+ // Folders default to collapsed, so only the levels the user has opened get
+ // rendered. Unloaded folders stay as cheap closed rows.
+ function buildLevel(dirPath, container) {
+  for (const entry of dirs.get(dirPath) || []) {
+   const path = dirPath ? dirPath + '/' + entry.name : entry.name;
+   if (entry.kind === 'directory') {
+    if (searchTerm && !folderMatches(path, entry.name)) continue;
+    container.appendChild(makeFolderRow(entry.name, path));
+   } else if (isMarkdown(entry.name)) {
+    if (searchTerm && !path.toLowerCase().includes(searchTerm.toLowerCase())) continue;
+    container.appendChild(makeFileRow(entry.name, path));
+   }
+  }
+ }
+
+ function makeFileRow(name, path) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'tree-row' + (activePath === path ? ' active' : '');
+  b.dataset.file = '1';
+  b.dataset.path = path;
+  b.title = path;
+  b.innerHTML = '<span class="fileicon" aria-hidden="true">📄</span><span class="filename"></span>';
+  b.querySelector('.filename').textContent = name;
+  b.addEventListener('click', () => openFile(path));
+  return b;
+ }
+
+ function makeFolderRow(name, path) {
+  const isExpanded = expandedPaths.has(path);
+  const wrap = document.createElement('div');
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'tree-row';
+  b.dataset.path = path;
+  b.title = path;
+  b.setAttribute('aria-expanded', String(isExpanded));
+  b.innerHTML = '<span class="twisty" aria-hidden="true"></span><span aria-hidden="true">📁</span><span class="filename"></span>';
+  b.querySelector('.filename').textContent = name;
+  b.querySelector('.twisty').textContent = isExpanded ? '▾' : '▸';
+
+  const children = document.createElement('div');
+  children.className = 'tree-children';
+  children.hidden = !isExpanded;
+  if (isExpanded && dirs.has(path)) buildLevel(path, children);
+
+  b.addEventListener('click', () => toggleFolder(path, b, children));
+  wrap.append(b, children);
+  return wrap;
+ }
+
+ async function toggleFolder(path, row, children) {
+  const expand = children.hidden;
+  children.hidden = !expand;
+  row.setAttribute('aria-expanded', String(expand));
+  row.querySelector('.twisty').textContent = expand ? '▾' : '▸';
+
+  if (!expand) {
+   expandedPaths.delete(path);
+   return;
+  }
+
+  if (dirs.has(path)) {
+   expandedPaths.add(path);
+   children.replaceChildren();
+   buildLevel(path, children);
+   return;
+  }
+
+  children.replaceChildren(statusRow('Scanning folder…'));
+  const ok = await ensureDir(path);
+  if (children.hidden) return; // collapsed again while scanning
+  expandedPaths.add(path);
+  children.replaceChildren();
+  if (!ok) children.appendChild(statusRow('Could not read this folder.'));
+  else buildLevel(path, children);
+ }
+
+ // Load one directory level on demand. Repeated clicks while a scan is in
+ // flight reuse the same promise instead of walking the directory twice.
+ function ensureDir(path) {
+  if (dirs.has(path)) return Promise.resolve(true);
+  if (loadingDirs.has(path)) return loadingDirs.get(path);
+  const task = (async () => {
+   const handle = dirHandles.get(path) || await findHandle(path);
+   if (!handle || handle.kind !== 'directory') return false;
+   try {
+    if (!await readDir(path, handle)) return false;
+    dirHandles.set(path, handle);
+    return true;
+   } catch (e) {
+    console.warn('Could not scan ' + path, e);
+    return false;
+   }
+  })();
+  loadingDirs.set(path, task);
+  const cleanup = () => loadingDirs.delete(path);
+  task.then(cleanup, cleanup);
+  return task;
+ }
+
+ function statusRow(text) {
+  const p = document.createElement('p');
+  p.className = 'status';
+  p.textContent = text;
+  return p;
+ }
+
+ // A folder that has not been scanned yet may contain a match, so keep it
+ // visible; scanned folders are filtered by their already-loaded contents.
+ function folderMatches(path, name) {
+  const term = searchTerm.toLowerCase();
+  if (name.toLowerCase().includes(term)) return true;
+  if (!dirs.has(path)) return true;
+  for (const entry of dirs.get(path)) {
+   const childPath = path + '/' + entry.name;
+   if (entry.kind === 'directory') {
+    if (folderMatches(childPath, entry.name)) return true;
+   } else if (isMarkdown(entry.name) && childPath.toLowerCase().includes(term)) return true;
+  }
+  return false;
  }
 
  // Cheap in-place highlight update so opening a file never rebuilds (and thus
@@ -200,7 +286,7 @@
  /* ---------- document rendering ---------- */
 
  async function openFile(path) {
-  const handle = fileMap.get(path);
+  const handle = await fileHandleFor(path);
   if (!handle) return;
   try {
    const file = await handle.getFile();
@@ -279,16 +365,24 @@
     continue;
    }
    const target = resolvePath(current, href);
-   if (fileMap.has(target)) {
-    a.href = '#';
-    if (!a.title) a.title = target;
-    a.addEventListener('click', e => { e.preventDefault(); openFile(target); });
-   } else {
-    a.title = 'File not found in selected folder: ' + target;
-    a.classList.add('error');
-    a.addEventListener('click', e => {
-     e.preventDefault();
+   a.href = '#';
+   if (!a.title) a.title = target;
+   a.addEventListener('click', async e => {
+    e.preventDefault();
+    if (!await fileHandleFor(target)) {
      alert('File not found in selected folder:\n' + target);
+     return;
+    }
+    openFile(target);
+   });
+   // The target may live in a folder that has not been expanded yet, so probe
+   // it directly instead of relying on the lazily built fileMap.
+   if (!fileMap.has(target)) {
+    fileHandleFor(target).then(handle => {
+     if (!handle) {
+      a.title = 'File not found in selected folder: ' + target;
+      a.classList.add('error');
+     }
     });
    }
   }
@@ -312,8 +406,18 @@
   }
  }
 
- async function findHandle(path) {
+ async function fileHandleFor(path) {
+  if (!path) return null;
   if (fileMap.has(path)) return fileMap.get(path);
+  const handle = await findHandle(path);
+  if (!handle || handle.kind !== 'file') return null;
+  fileMap.set(path, handle);
+  updateCount();
+  return handle;
+ }
+
+ async function findHandle(path) {
+  if (!rootHandle || !path) return null;
   const parts = path.split('/');
   let h = rootHandle;
   for (let i = 0; i < parts.length; i++) {

@@ -1,6 +1,6 @@
 # Markdown Folder Viewer
 
-A local-only Chrome extension (Manifest V3) for browsing Markdown files under a user-selected folder. It includes a recursive tree, file filtering, a table of contents, relative `.md` links, relative image paths, and a **small built-in Mermaid flowchart subset renderer**.
+A local-only Chrome extension (Manifest V3) for browsing Markdown files under a user-selected folder. It includes a lazily loaded folder tree, file filtering, a table of contents, relative `.md` links, relative image paths, and a **small built-in Mermaid flowchart subset renderer**.
 
 ## Install
 1. Extract the ZIP to a folder.
@@ -25,8 +25,9 @@ same shapes as `icons/icon.svg` by a dependency-free Node script. Re-run
 - To keep the package self-contained and offline, the Markdown parser is a lightweight built-in renderer rather than the full CommonMark specification. It supports headings (ATX and setext), paragraphs, emphasis, inline code, fenced code blocks, links, images, blockquotes, lists, horizontal rules, and basic pipe tables. Nested lists are flattened to a single level, and raw HTML in source files is escaped rather than rendered.
 - The Mermaid renderer currently supports simple `flowchart` / `graph` diagrams with `TD`, `TB`, `LR`, `RL`, and `BT` direction and basic node/edge syntax. It is not the full Mermaid engine; advanced Mermaid syntax is shown as source code instead of being rendered.
 - Folder handles are saved in IndexedDB. After a browser restart Chrome usually needs permission again; the viewer offers a **Grant access** button so you do not have to re-pick the folder. If that fails, choose the folder again.
-- Folder expand/collapse state and the current file are preserved when you switch documents; *Refresh* re-scans the folder and re-renders the active file.
-- On first open, the viewer shows `README.md` (preferring one at the folder root) so the folder's landing page appears instead of the alphabetically first file. If no README exists, the first Markdown file is shown.
+- Folders start collapsed and are scanned lazily: *Refresh* (and the initial load) reads only the top level, and expanding a folder scans just that folder's direct children. Opening a relative link to a file in an unopened folder still works. The file counter reflects the levels loaded so far.
+- The current document is preserved when you switch files; *Refresh* re-reads the top level, collapses folders again, and re-renders the active file.
+- On first open, the viewer shows the top-level `README.md` so the folder's landing page appears instead of the alphabetically first file. If there is no top-level README, the first top-level Markdown file is shown.
 - Relative Markdown links are resolved inside the selected folder. Remote HTTP(S) links open in a new tab. Relative images are read from the selected folder.
 - This extension is read-only; it does not modify local files.
 
