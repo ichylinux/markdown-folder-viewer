@@ -26,6 +26,7 @@ same shapes as `icons/icon.svg` by a dependency-free Node script. Re-run
 - The Mermaid renderer currently supports simple `flowchart` / `graph` diagrams with `TD`, `TB`, `LR`, `RL`, and `BT` direction and basic node/edge syntax. It is not the full Mermaid engine; advanced Mermaid syntax is shown as source code instead of being rendered.
 - Folder handles are saved in IndexedDB. After a browser restart Chrome usually needs permission again; the viewer offers a **Grant access** button so you do not have to re-pick the folder. If that fails, choose the folder again.
 - Folder expand/collapse state and the current file are preserved when you switch documents; *Refresh* re-scans the folder and re-renders the active file.
+- On first open, the viewer shows `README.md` (preferring one at the folder root) so the folder's landing page appears instead of the alphabetically first file. If no README exists, the first Markdown file is shown.
 - Relative Markdown links are resolved inside the selected folder. Remote HTTP(S) links open in a new tab. Relative images are read from the selected folder.
 - This extension is read-only; it does not modify local files.
 

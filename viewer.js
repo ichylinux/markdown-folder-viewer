@@ -79,12 +79,22 @@
    $('fileCount').textContent = fileMap.size + ' files';
    // Always re-open the active file: the folder may have been re-chosen, and a
    // same-named path in the new folder must not show stale content.
-   const next = activePath && fileMap.has(activePath) ? activePath : [...fileMap.keys()].sort()[0];
+   const next = activePath && fileMap.has(activePath) ? activePath : pickInitialPath();
    if (next) await openFile(next);
    else showWelcome();
   } catch (e) {
    showError('Could not read folder: ' + e.message);
   }
+ }
+
+ // On first open, show a README so the folder's own landing page appears
+ // instead of whichever file happens to sort first.
+ function pickInitialPath() {
+  const paths = [...fileMap.keys()].sort((a, b) => a.localeCompare(b));
+  const readmes = paths
+   .filter(p => /^readme\.md(?:own)?$/i.test(p.split('/').pop()))
+   .sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b));
+  return readmes[0] || paths[0] || null;
  }
 
  async function walk(dir, prefix) {
