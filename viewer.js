@@ -1,6 +1,22 @@
 (() => {
  const $ = id => document.getElementById(id);
- const DB = 'markdown-folder-viewer-db', STORE = 'handles';
+ const { save: saveHandle, load: loadHandle, permission } = MfvHandles;
+ const { makeToc, renderMermaid } = MfvRender;
+ const channel = new BroadcastChannel('markdown-folder-viewer');
+
+ // Pane mode: viewer.html is embedded as the sidebar of a file:// Markdown
+ // page (see page.js). Only the tree is shown, and opening a file asks the
+ // host page to navigate to its file:// URL.
+ const hostUrl = new URLSearchParams(location.search).get('page');
+ const embedded = !!hostUrl;
+ let hostRoot = null; // absolute disk path of rootHandle, derived from hostUrl
+ const hostPath = embedded ? safeDecode(new URL(hostUrl).pathname) : null;
+ const hostDir = hostPath && hostPath.slice(0, hostPath.lastIndexOf('/'));
+ let savedFolders = []; // [{ path, handle }] remembered with their disk location
+ let awaitingPicker = false; // this pane opened the picker window
+ let pendingRemember = false; // the picked folder should be saved once verified
+ let openingEntry = null; // saved folder being opened from the pane
+ let adopted = false;
 
  let rootHandle = null;
  const fileMap = new Map();       // Markdown path -> file handle (loaded levels only)
@@ -13,43 +29,16 @@
  let searchTerm = '';
  let objectUrls = [];
 
- /* ---------- saved folder handle ---------- */
-
- function dbOpen() {
-  return new Promise((resolve, reject) => {
-   const r = indexedDB.open(DB, 1);
-   r.onupgradeneeded = () => r.result.createObjectStore(STORE);
-   r.onsuccess = () => resolve(r.result);
-   r.onerror = () => reject(r.error);
-  });
- }
-
- async function saveHandle(handle) {
-  const db = await dbOpen();
-  return new Promise((resolve, reject) => {
-   const tx = db.transaction(STORE, 'readwrite');
-   tx.objectStore(STORE).put(handle, 'root');
-   tx.oncomplete = () => { db.close(); resolve(); };
-   tx.onerror = () => { db.close(); reject(tx.error); };
-  });
- }
-
- async function loadHandle() {
-  const db = await dbOpen();
-  return new Promise((resolve, reject) => {
-   const r = db.transaction(STORE).objectStore(STORE).get('root');
-   r.onsuccess = () => { db.close(); resolve(r.result || null); };
-   r.onerror = () => { db.close(); reject(r.error); };
-  });
- }
-
- async function permission(handle, request = false) {
-  let p = await handle.queryPermission({ mode: 'read' });
-  if (p !== 'granted' && request) p = await handle.requestPermission({ mode: 'read' });
-  return p === 'granted';
- }
-
  /* ---------- folder selection and scanning ---------- */
+
+ // Chrome refuses to show a directory picker from a cross-origin iframe, so
+ // the pane delegates picking (and re-granting) to a small top-level window.
+ // Only the pane that opened it reacts to the result, so panes in other tabs
+ // never navigate away on their own.
+ function openPicker(mode) {
+  awaitingPicker = true;
+  window.open('pick.html' + (mode ? '?mode=' + mode : ''), 'mfv-pick', 'popup,width=480,height=280');
+ }
 
  async function chooseFolder() {
   if (!window.showDirectoryPicker) {
@@ -79,9 +68,11 @@
  // for a full recursive walk up front.
  async function scanFolder() {
   if (!rootHandle) return;
-  const ok = await permission(rootHandle, true);
+  const ok = await permission(rootHandle, !embedded);
   if (!ok) {
-   showError('Folder permission was not granted. Click “Choose folder” and select it again.');
+   showError(embedded
+    ? 'Folder permission was not granted.'
+    : 'Folder permission was not granted. Click “Choose folder” and select it again.');
    return;
   }
   resetTree();
@@ -90,17 +81,127 @@
   $('tree').innerHTML = '<p class="status">Scanning folder…</p>';
   try {
    await readDir('', rootHandle);
-   renderTree();
    $('refresh').disabled = false;
+   if (embedded) {
+    await revealHostFile();
+    return;
+   }
+   renderTree();
    // Always re-open the active file: the folder may have been re-chosen, and a
    // same-named path in the new folder must not show stale content. Nested
    // files are resolved directly, even though their folder is still collapsed.
    const next = (await fileHandleFor(activePath)) ? activePath : pickInitialPath();
-   if (next) await openFile(next);
+   if (next) await openFile(next, { push: false });
    else showWelcome();
   } catch (e) {
    showError('Could not read folder: ' + e.message);
   }
+ }
+
+ // The folder picker only reveals the folder's name, so its disk location is
+ // inferred from the host page URL: the deepest ancestor with that name that
+ // really contains the open file wins.
+ async function locateHostFile() {
+  const segs = hostPath.split('/').filter(Boolean);
+  for (let i = segs.length - 2; i >= 0; i--) {
+   if (segs[i] !== rootHandle.name) continue;
+   const rel = segs.slice(i + 1).join('/');
+   if (await fileHandleFor(rel)) return { root: '/' + segs.slice(0, i + 1).join('/'), rel };
+  }
+  return null;
+ }
+
+ // Each navigation reloads the pane, so the expanded folders are kept per
+ // root and restored together with the open file's ancestors.
+ function expandedKey() {
+  return 'expanded:' + hostRoot;
+ }
+
+ function saveExpanded() {
+  if (embedded && hostRoot) localStorage.setItem(expandedKey(), JSON.stringify([...expandedPaths]));
+ }
+
+ // The deepest saved folder that contains the open file, if any.
+ function coveringEntry() {
+  return savedFolders
+   .filter(entry => hostDir === entry.path || hostDir.startsWith(entry.path + '/'))
+   .sort((a, b) => b.path.length - a.path.length)[0] || null;
+ }
+
+ // Opening a file under a saved folder from the address bar switches the
+ // pane to that folder. Done at most once per page so a folder that no longer
+ // matches its saved location cannot cause a loop.
+ async function adoptCoveringFolder() {
+  const entry = coveringEntry();
+  if (adopted || !entry) return false;
+  if (rootHandle && await entry.handle.isSameEntry(rootHandle).catch(() => false)) return false;
+  adopted = true;
+  rootHandle = entry.handle;
+  await saveHandle(entry.handle);
+  if (await permission(entry.handle, false)) await scanFolder();
+  else showReconnect(entry.handle);
+  return true;
+ }
+
+ // A saved folder opened from the pane usually does not contain the current
+ // page; its location is known, so go to its landing page.
+ function revealSavedFolder(entry) {
+  hostRoot = entry.path;
+  activePath = null;
+  const initial = pickInitialPath();
+  if (initial) {
+   openFile(initial);
+   return;
+  }
+  $('error').hidden = true;
+  renderTree();
+  renderSaved();
+ }
+
+ async function revealHostFile() {
+  const opening = openingEntry;
+  const remembering = pendingRemember;
+  openingEntry = null;
+  pendingRemember = false;
+  const found = await locateHostFile();
+  if (!found) {
+   if (opening) {
+    revealSavedFolder(opening);
+    return;
+   }
+   if (await adoptCoveringFolder()) return;
+   hostRoot = activePath = null;
+   $('folderName').textContent = '';
+   $('fileCount').textContent = '';
+   showUnsaved(remembering
+    ? `“${rootHandle.name}” does not contain this file, so it was not saved.`
+    : 'This file is not in a saved folder.');
+   $('error').hidden = true;
+   renderSaved();
+   return;
+  }
+  hostRoot = found.root;
+  activePath = found.rel;
+  $('error').hidden = true;
+  if (remembering) await storeSaved([...savedFolders.filter(e => e.path !== hostRoot), { path: hostRoot, handle: rootHandle }]);
+  else renderSaved();
+  const parts = activePath.split('/');
+  const wanted = parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('/'));
+  try {
+   wanted.push(...JSON.parse(localStorage.getItem(expandedKey()) || '[]'));
+  } catch { /* corrupt entry: start collapsed */ }
+  const gen = treeGeneration;
+  for (const path of [...new Set(wanted)].sort((a, b) => a.split('/').length - b.split('/').length)) {
+   const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+   if ((parent === '' || expandedPaths.has(parent)) && await ensureDir(path)) expandedPaths.add(path);
+  }
+  if (gen !== treeGeneration) return;
+  renderTree();
+  $('tree').querySelector('.tree-row.active')?.scrollIntoView({ block: 'center' });
+ }
+
+ function hostFileUrl(path) {
+  return 'file://' + (hostRoot + '/' + path).split('/').map(encodeURIComponent).join('/');
  }
 
  // On first open, show a README so the folder's own landing page appears
@@ -211,11 +312,13 @@
 
   if (!expand) {
    expandedPaths.delete(path);
+   saveExpanded();
    return;
   }
 
   if (dirs.has(path)) {
    expandedPaths.add(path);
+   saveExpanded();
    children.replaceChildren();
    buildLevel(path, children);
    return;
@@ -225,6 +328,7 @@
   const ok = await ensureDir(path);
   if (children.hidden) return; // collapsed again while scanning
   expandedPaths.add(path);
+  saveExpanded();
   children.replaceChildren();
   if (!ok) children.appendChild(statusRow('Could not read this folder.'));
   else buildLevel(path, children);
@@ -285,15 +389,34 @@
 
  /* ---------- document rendering ---------- */
 
- async function openFile(path) {
+ function pathFromUrl() {
+  return new URLSearchParams(location.search).get('file') || null;
+ }
+
+ // Keep '/' readable in the address bar; everything else is escaped so '#',
+ // '?' and '&' in file names cannot break the URL.
+ function setUrlPath(path, push) {
+  if (pathFromUrl() === path) return;
+  const query = path ? '?file=' + encodeURIComponent(path).replace(/%2F/g, '/') : '';
+  const url = location.pathname + query;
+  if (push) history.pushState(null, '', url);
+  else history.replaceState(null, '', url);
+ }
+
+ async function openFile(path, { push = true } = {}) {
   const handle = await fileHandleFor(path);
   if (!handle) return;
+  if (embedded) {
+   window.parent.postMessage({ type: 'mfv-open', url: hostFileUrl(path) }, '*');
+   return;
+  }
   try {
    const file = await handle.getFile();
    const src = await file.text();
    const parsed = MiniMarkdown.render(src);
    revokeObjectUrls();
    activePath = path;
+   setUrlPath(path, push);
    $('welcome').hidden = true;
    $('error').hidden = true;
    const article = $('document');
@@ -311,29 +434,6 @@
  function revokeObjectUrls() {
   for (const url of objectUrls) URL.revokeObjectURL(url);
   objectUrls = [];
- }
-
- function makeToc(headings, article) {
-  article.querySelector('.toc')?.remove();
-  if (!headings.length) return;
-  const box = document.createElement('div');
-  box.className = 'toc';
-  const title = document.createElement('div');
-  title.className = 'toc-title';
-  title.textContent = 'Contents';
-  box.appendChild(title);
-  const ul = document.createElement('ul');
-  for (const h of headings) {
-   const li = document.createElement('li');
-   li.style.marginLeft = ((h.level - 1) * 12) + 'px';
-   const a = document.createElement('a');
-   a.href = '#' + h.id;
-   a.textContent = h.text;
-   li.appendChild(a);
-   ul.appendChild(li);
-  }
-  box.appendChild(ul);
-  article.insertBefore(box, article.firstChild);
  }
 
  function safeDecode(value) {
@@ -428,115 +528,11 @@
   return h;
  }
 
- /* ---------- mermaid subset ---------- */
-
- function renderMermaid(article) {
-  for (const node of article.querySelectorAll('[data-mermaid="1"]')) {
-   const svg = renderFlowchart(node.textContent);
-   if (!svg) continue; // leave the source visible when unsupported
-   const box = document.createElement('div');
-   box.className = 'mermaid-box';
-   box.appendChild(svg);
-   node.replaceWith(box);
-  }
- }
-
- function renderFlowchart(src) {
-  const lines = src.split('\n').map(s => s.trim()).filter(Boolean);
-  if (!lines.length || !/^flowchart\s+(TD|TB|LR|RL|BT)|^graph\s+(TD|TB|LR|RL|BT)/i.test(lines[0])) return null;
-  const edges = [], nodes = new Map();
-  const getNode = (id, label) => {
-   if (!nodes.has(id)) nodes.set(id, { id, label: label || id });
-   else if (label) nodes.get(id).label = label;
-  };
-  for (const l of lines.slice(1)) {
-   const m = l.match(/^([\w-]+)\s*(?:\[([^\]]*)\]|\(([^)]*)\)|\{([^}]*)\})?\s*(?:-->|---|==>|-.->)\s*([\w-]+)\s*(?:\[([^\]]*)\]|\(([^)]*)\)|\{([^}]*)\})?/);
-   if (m) {
-    const label1 = m[2] || m[3] || m[4], label2 = m[6] || m[7] || m[8];
-    getNode(m[1], label1);
-    getNode(m[5], label2);
-    edges.push([m[1], m[5]]);
-    continue;
-   }
-   const solo = l.match(/^([\w-]+)\s*(?:\[([^\]]*)\]|\(([^)]*)\)|\{([^}]*)\})/);
-   if (solo) getNode(solo[1], solo[2] || solo[3] || solo[4]);
-  }
-  if (!nodes.size) return null;
-
-  const arr = [...nodes.values()];
-  const lr = /\bLR\b/i.test(lines[0]);
-  const w = lr ? Math.max(680, arr.length * 170) : Math.max(420, arr.reduce((m, n) => Math.max(m, n.label.length * 8 + 60), 0));
-  const h = lr ? Math.max(160, arr.reduce((m, n) => Math.max(m, n.label.length * 8 + 60), 0)) : arr.length * 90 + 30;
-
-  const ns = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
-  svg.setAttribute('role', 'img');
-  svg.setAttribute('aria-label', 'Mermaid flowchart');
-
-  const defs = document.createElementNS(ns, 'defs');
-  const marker = document.createElementNS(ns, 'marker');
-  marker.setAttribute('id', 'mermaid-arrow');
-  marker.setAttribute('markerWidth', '8');
-  marker.setAttribute('markerHeight', '8');
-  marker.setAttribute('refX', '7');
-  marker.setAttribute('refY', '3');
-  marker.setAttribute('orient', 'auto');
-  const poly = document.createElementNS(ns, 'path');
-  poly.setAttribute('d', 'M0,0 L0,6 L7,3 z');
-  poly.setAttribute('fill', 'currentColor');
-  marker.appendChild(poly);
-  defs.appendChild(marker);
-  svg.appendChild(defs);
-
-  const pos = {};
-  arr.forEach((n, i) => {
-   pos[n.id] = lr
-    ? { x: 30 + i * (w - 150) / Math.max(1, arr.length - 1), y: h / 2 }
-    : { x: w / 2, y: 30 + i * 90 };
-  });
-
-  for (const [a, b] of edges) {
-   if (!pos[a] || !pos[b]) continue;
-   const line = document.createElementNS(ns, 'line');
-   line.setAttribute('x1', pos[a].x + 55);
-   line.setAttribute('y1', pos[a].y + 18);
-   line.setAttribute('x2', pos[b].x + 55);
-   line.setAttribute('y2', pos[b].y - 18);
-   line.setAttribute('stroke', 'currentColor');
-   line.setAttribute('stroke-width', '1.5');
-   line.setAttribute('marker-end', 'url(#mermaid-arrow)');
-   svg.appendChild(line);
-  }
-
-  for (const n of arr) {
-   const p = pos[n.id];
-   const g = document.createElementNS(ns, 'g');
-   const rect = document.createElementNS(ns, 'rect');
-   rect.setAttribute('x', p.x);
-   rect.setAttribute('y', p.y - 20);
-   rect.setAttribute('width', '110');
-   rect.setAttribute('height', '40');
-   rect.setAttribute('rx', '7');
-   rect.setAttribute('fill', 'var(--panel)');
-   rect.setAttribute('stroke', 'var(--accent)');
-   const text = document.createElementNS(ns, 'text');
-   text.setAttribute('x', p.x + 55);
-   text.setAttribute('y', p.y + 4);
-   text.setAttribute('text-anchor', 'middle');
-   text.setAttribute('font-size', '12');
-   text.setAttribute('fill', 'currentColor');
-   text.textContent = n.label.slice(0, 24);
-   g.append(rect, text);
-   svg.appendChild(g);
-  }
-  return svg;
- }
-
  /* ---------- status screens ---------- */
 
  function showWelcome() {
   activePath = null;
+  setUrlPath(null, false);
   $('error').hidden = true;
   $('welcome').hidden = false;
   $('document').hidden = true;
@@ -554,11 +550,98 @@
   const p = document.createElement('p');
   p.className = 'error';
   p.textContent = msg;
+  box.append(h, p);
+  if (embedded) return; // the pane picks folders through “Remember this folder”
   const b = document.createElement('button');
   b.type = 'button';
   b.textContent = 'Choose folder';
   b.addEventListener('click', chooseFolder);
-  box.append(h, p, b);
+  box.appendChild(b);
+ }
+
+ /* ---------- saved folders (pane only) ---------- */
+
+ function renderSaved() {
+  const box = $('saved');
+  box.hidden = false;
+  box.replaceChildren();
+  if (hostRoot && activePath && !coveringEntry()) box.appendChild(rememberButton());
+  if (!savedFolders.length) return;
+  const title = document.createElement('div');
+  title.className = 'saved-title';
+  title.textContent = 'Saved folders';
+  box.appendChild(title);
+  for (const entry of savedFolders) {
+   const row = document.createElement('div');
+   row.className = 'saved-row';
+   const open = document.createElement('button');
+   open.type = 'button';
+   open.className = 'tree-row';
+   open.title = entry.path;
+   open.innerHTML = '<span aria-hidden="true">📁</span><span class="filename"></span>';
+   open.querySelector('.filename').textContent = entry.path.slice(entry.path.lastIndexOf('/') + 1);
+   open.addEventListener('click', () => openSaved(entry));
+   const remove = document.createElement('button');
+   remove.type = 'button';
+   remove.className = 'saved-remove';
+   remove.title = 'Forget ' + entry.path;
+   remove.setAttribute('aria-label', remove.title);
+   remove.textContent = '×';
+   remove.addEventListener('click', () => forgetFolder(entry));
+   row.append(open, remove);
+   box.appendChild(row);
+  }
+ }
+
+ function rememberButton() {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'remember';
+  b.title = hostDir;
+  b.textContent = '📌 Remember this folder';
+  b.addEventListener('click', rememberCurrent);
+  return b;
+ }
+
+ // No tree for this file: explain why, with the way to get one right below.
+ function showUnsaved(note) {
+  $('tree').replaceChildren(statusRow(note), rememberButton());
+ }
+
+ async function storeSaved(list) {
+  savedFolders = list.sort((a, b) => a.path.localeCompare(b.path));
+  await saveHandle(savedFolders, 'saved');
+  renderSaved();
+ }
+
+ // Save the open file's parent folder. If the current folder does not
+ // contain the file, the user picks it; revealHostFile saves it only after
+ // confirming it contains the open file.
+ async function rememberCurrent() {
+  if (hostRoot && activePath) {
+   const dir = activePath.includes('/') ? activePath.slice(0, activePath.lastIndexOf('/')) : '';
+   const handle = dir ? await findHandle(dir) : rootHandle;
+   if (handle) await storeSaved([...savedFolders, { path: hostDir, handle }]);
+   return;
+  }
+  pendingRemember = true;
+  openPicker();
+ }
+
+ function forgetFolder(entry) {
+  return storeSaved(savedFolders.filter(e => e !== entry));
+ }
+
+ async function openSaved(entry) {
+  openingEntry = entry;
+  rootHandle = entry.handle;
+  await saveHandle(entry.handle);
+  let granted = false;
+  try {
+   granted = await permission(entry.handle, true);
+  } catch { /* no prompt from this frame: fall back to the window */ }
+  if (granted) await scanFolder();
+  else openPicker('grant');
  }
 
  // Chrome drops handle permissions on restart. Offer a one-click re-grant
@@ -578,12 +661,16 @@
   b.textContent = 'Grant access';
   b.addEventListener('click', async () => {
    rootHandle = handle;
+   let granted = false, error = null;
    try {
-    if (await permission(handle, true)) await scanFolder();
-    else showError('Folder permission was not granted. Click “Choose folder” and select it again.');
+    granted = await permission(handle, true);
    } catch (e) {
-    showError('Could not re-open folder: ' + e.message);
+    error = e;
    }
+   if (granted) await scanFolder();
+   else if (embedded) openPicker('grant');
+   else if (error) showError('Could not re-open folder: ' + error.message);
+   else showError('Folder permission was not granted. Click “Choose folder” and select it again.');
   });
   box.append(h, p, b);
  }
@@ -592,16 +679,53 @@
 
  $('choose').addEventListener('click', chooseFolder);
  $('choose2').addEventListener('click', chooseFolder);
- $('refresh').addEventListener('click', scanFolder);
+ // The pane may miss a folder picked in another window, so its Refresh also
+ // re-reads the saved folder.
+ $('refresh').addEventListener('click', () => (embedded ? reloadSavedFolder() : scanFolder()));
  $('search').addEventListener('input', e => {
   searchTerm = e.target.value.trim();
   renderTree();
  });
+ window.addEventListener('popstate', () => {
+  const path = pathFromUrl();
+  if (path && path !== activePath) openFile(path, { push: false });
+ });
+ async function loadSavedFolders() {
+  if (!embedded) return;
+  savedFolders = (await loadHandle('saved')) || [];
+  renderSaved();
+ }
+
+ async function reloadSavedFolder() {
+  await loadSavedFolders();
+  const handle = await loadHandle();
+  if (!handle) return;
+  rootHandle = handle;
+  if (await permission(handle, false)) await scanFolder();
+  else showReconnect(handle);
+ }
+ channel.addEventListener('message', e => {
+  if (!awaitingPicker || e.data?.type !== 'root-changed') return;
+  awaitingPicker = false;
+  reloadSavedFolder();
+ });
+
+ if (embedded) {
+  document.body.classList.add('embedded');
+  $('tree').before($('error'));
+  showUnsaved('This file is not in a saved folder.');
+  $('refresh').disabled = false;
+ }
 
  (async () => {
+  activePath = embedded ? null : pathFromUrl();
   try {
+   await loadSavedFolders();
    const handle = await loadHandle();
-   if (!handle) return;
+   if (!handle) {
+    if (embedded) await adoptCoveringFolder();
+    return;
+   }
    if (await permission(handle, false)) {
     rootHandle = handle;
     await scanFolder();

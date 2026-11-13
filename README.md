@@ -11,6 +11,15 @@ A local-only Chrome extension (Manifest V3) for browsing Markdown files under a 
 
 Requires Chrome 86 or newer (File System Access API).
 
+### Opening `file://` Markdown directly
+The extension can also render a Markdown file opened directly in Chrome, such as `file:///home/me/notes/README.md`, so the address bar shows the real file path.
+
+1. On `chrome://extensions`, open the extension's **Details** and turn on **Allow access to file URLs**.
+2. Open a local `.md` file. The document is rendered, with the folder tree on the left.
+3. The first time, click **Remember this folder** in the left pane and pick the folder that contains the open file (its own folder or any folder above it). Chrome does not allow a picker inside the pane, so a small window opens for this.
+
+Chrome reveals only a picked folder's name, not its location, so the pane takes the location from the open file's path and saves the folder only if it really contains that file. Saved folders are listed in the pane and open with one click; opening any file under a saved folder from the address bar also switches the tree to it. When the current folder already contains the open file, **Remember this folder** saves the file's parent folder without a picker. Clicking a file in the tree navigates the tab to that file's `file://` URL. Expanded folders are remembered across navigations.
+
 ## Development
 ```bash
 npm test       # Markdown renderer tests (node --test, no dependencies)
