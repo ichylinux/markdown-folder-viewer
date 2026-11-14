@@ -1,1 +1,6 @@
-document.getElementById('open').addEventListener('click',()=>{chrome.tabs.create({url:chrome.runtime.getURL('viewer.html?start=1')});window.close();});
+document.getElementById('open').addEventListener('click', () => {
+  chrome.tabs.create({
+    url: chrome.runtime.getURL('viewer.html?start=1'),
+  });
+  window.close();
+});
