@@ -2,6 +2,8 @@
  const $ = id => document.getElementById(id);
  const { save: saveHandle, load: loadHandle, permission } = MfvHandles;
  const { makeToc, renderMermaid } = MfvRender;
+ const scrollKeeper = MfvRender.scrollKeeper(document.querySelector('.reader'));
+ let restoreScroll = MfvRender.isReload(); // only the first file shown after a reload
  const channel = new BroadcastChannel('markdown-folder-viewer');
 
  // Pane mode: viewer.html is embedded as the sidebar of a file:// Markdown
@@ -443,6 +445,8 @@
    resolveLinks(article, path);
    renderMermaid(article);
    updateActive();
+   scrollKeeper.track('mfv-scroll:' + path, article, restoreScroll);
+   restoreScroll = false;
   } catch (e) {
    showError('Could not read file: ' + e.message);
   }

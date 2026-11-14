@@ -125,5 +125,67 @@ window.MfvRender = (() => {
   return svg;
  }
 
- return { makeToc, renderMermaid };
+ // The document lives in an inner scroller that is filled in by script, so
+ // Chrome cannot restore its position on reload. Remember it per tab instead.
+ function isReload() {
+  try {
+   const type = performance.getEntriesByType('navigation')[0]?.type;
+   return type === 'reload' || type === 'back_forward';
+  } catch {
+   return false;
+  }
+ }
+
+ // Saves `scroller`'s position under the current key and can put it back.
+ // Late layout changes (images, diagrams) would clamp the position, so the
+ // target is re-applied for a short while unless the user scrolls first.
+ function scrollKeeper(scroller) {
+  let key = null;
+  let restoring = false;
+  let frame = 0;
+  let stop = () => {};
+
+  scroller.addEventListener('scroll', () => {
+   if (!key || restoring || frame) return;
+   frame = requestAnimationFrame(() => {
+    frame = 0;
+    try { sessionStorage.setItem(key, String(scroller.scrollTop)); } catch { /* storage unavailable */ }
+   });
+  });
+
+  // Start tracking `content` (the scroller or its child) under `newKey`;
+  // with `restore`, jump to the position saved for that key first.
+  function track(newKey, content, restore) {
+   stop();
+   key = newKey;
+   let target = 0;
+   if (restore) {
+    try { target = Number(sessionStorage.getItem(newKey)) || 0; } catch { /* storage unavailable */ }
+   }
+   if (!target) return;
+
+   restoring = true;
+   const apply = () => { if (Math.abs(scroller.scrollTop - target) > 1) scroller.scrollTop = target; };
+   const observer = new ResizeObserver(apply);
+   const interrupts = ['wheel', 'touchstart', 'keydown', 'mousedown'];
+   const timer = setTimeout(() => stop(), 3000);
+   stop = () => {
+    clearTimeout(timer);
+    observer.disconnect();
+    for (const type of interrupts) scroller.removeEventListener(type, stop);
+    restoring = false;
+    stop = () => {};
+   };
+   for (const type of interrupts) scroller.addEventListener(type, stop, { passive: true });
+   // When the content is itself the scroller its own box never resizes, so
+   // watch its children too.
+   observer.observe(content);
+   for (const child of content.children) observer.observe(child);
+   apply();
+  }
+
+  return { track };
+ }
+
+ return { makeToc, renderMermaid, isReload, scrollKeeper };
 })();

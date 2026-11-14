@@ -30,6 +30,10 @@
   } catch { /* malformed fragment: stay at the top */ }
  }
 
+ // Reloading (or going back) returns to where the reader was, which wins
+ // over the fragment's position.
+ MfvRender.scrollKeeper(article).track('mfv-scroll:' + location.href.split('#')[0], article, MfvRender.isReload());
+
  window.addEventListener('message', e => {
   if (e.origin !== extOrigin || e.source !== pane.contentWindow) return;
   const { type, url } = e.data || {};
