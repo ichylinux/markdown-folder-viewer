@@ -176,7 +176,7 @@ input[type=search] {
 
 .reader {
   overflow: auto;
-  padding: 32px clamp(18px, 5vw, 70px);
+  padding: 32px clamp(18px, 3vw, 48px);
 }
 
 .welcome {
@@ -192,8 +192,6 @@ input[type=search] {
 /* Markdown body */
 
 .markdown-body {
-  max-width: 1000px;
-  margin: 0 auto;
   overflow-wrap: anywhere;
 }
 
@@ -480,8 +478,7 @@ body.mfv-page {
 .mfv-document {
   height: 100vh;
   overflow: auto;
-  max-width: none;
-  padding: 32px max(clamp(18px, 5vw, 70px), calc((100% - 1000px) / 2));
+  padding: 32px clamp(18px, 3vw, 48px);
 }
 
 /* Picker */
