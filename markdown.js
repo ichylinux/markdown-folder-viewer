@@ -78,13 +78,20 @@
     const DETAILS_OPEN = /^\s*<details(\s+open)?\s*>\s*$/i;
     const DETAILS_CLOSE = /^\s*<\/details>\s*$/i;
     const isDetails = l => DETAILS_OPEN.test(l) || DETAILS_CLOSE.test(l);
-    const isBlockStart = k => isFence(lines[k]) || isAtx(lines[k]) || isHr(lines[k]) || isDetails(lines[k])
+    const isBlockStart = k => isFence(lines[k]) || isAtx(lines[k]) || isHr(lines[k]) || isDetails(lines[k]) || /^\s*<!--/.test(lines[k])
         || isQuote(lines[k]) || isList(lines[k])
         || isTableStart(lines[k], lines[k + 1]) || isSetext(lines[k], lines[k + 1]);
 
     while (i < lines.length) {
       const l = lines[i];
       if (!l.trim()) { i++; continue; }
+
+      // HTML comments (single or multi-line) are not rendered.
+      if (/^\s*<!--/.test(l)) {
+          while (i < lines.length && !/-->/.test(lines[i])) i++;
+          i++;
+          continue;
+      }
 
       // <details> / <summary> blocks: the tags are recognised here and re-emitted
       // as fixed markup; everything inside is still rendered as escaped Markdown.

@@ -123,3 +123,16 @@ test('details supports open attribute, nesting and fenced </details>', () => {
 test('unclosed details does not swallow the render', () => {
   assert.equal(html('<details>\n<summary>s</summary>\nbody'), '<details><summary>s</summary><p>body</p></details>');
 });
+
+test('single-line HTML comments are not rendered', () => {
+  assert.equal(html('<!-- generated-by: gsd-doc-writer -->\n# Title'), '<h1 id="title">Title</h1>');
+});
+
+test('multi-line HTML comments are not rendered', () => {
+  assert.equal(html('<!--\nhidden\n-->\ntext'), '<p>text</p>');
+});
+
+test('HTML comment between paragraph lines does not leak', () => {
+  const out = html('a\n<!-- c -->\nb');
+  assert.doesNotMatch(out, /&lt;!--/);
+});
