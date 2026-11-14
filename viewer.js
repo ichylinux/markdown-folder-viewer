@@ -19,6 +19,8 @@
  let pendingRemember = false; // the picked folder should be saved once verified
  let openingEntry = null; // saved folder being opened from the pane
  let adopted = false;
+ let recentEntry = null; // start page: the last opened folder, listed with the saved ones
+ const startPage = !embedded && new URLSearchParams(location.search).get('start') === '1';
 
  let rootHandle = null;
  const fileMap = new Map();       // Markdown path -> file handle (loaded levels only)
@@ -587,12 +589,13 @@
   box.hidden = false;
   box.replaceChildren();
   if (hostRoot && activePath && !coveringEntry()) box.appendChild(rememberButton());
-  if (!savedFolders.length) return;
+  const entries = recentEntry ? [...savedFolders, recentEntry] : savedFolders;
+  if (!entries.length) return;
   const title = document.createElement('div');
   title.className = 'saved-title';
   title.textContent = 'Saved folders';
   box.appendChild(title);
-  for (const entry of savedFolders) {
+  for (const entry of entries) {
    const row = document.createElement('div');
    row.className = 'saved-row';
    const open = document.createElement('button');
@@ -609,7 +612,8 @@
    remove.setAttribute('aria-label', remove.title);
    remove.textContent = '×';
    remove.addEventListener('click', () => forgetFolder(entry));
-   row.append(open, remove);
+   row.append(open);
+   if (entry !== recentEntry) row.append(remove);
    box.appendChild(row);
   }
  }
@@ -662,7 +666,8 @@
    granted = await permission(entry.handle, true);
   } catch { /* no prompt from this frame: fall back to the window */ }
   if (granted) await scanFolder();
-  else openPicker('grant');
+  else if (embedded) openPicker('grant');
+  else showError('Folder permission was not granted. Click “Choose folder” and select it again.');
  }
 
  // Chrome drops handle permissions on restart. Offer a one-click re-grant
@@ -712,8 +717,16 @@
   if (path && path !== activePath) openFile(path, { push: false });
  });
  async function loadSavedFolders() {
-  if (!embedded) return;
+  if (!embedded && !startPage) return;
   savedFolders = (await loadHandle('saved')) || [];
+  if (startPage) {
+   const last = await loadHandle();
+   recentEntry = null;
+   if (last) {
+    const dup = await Promise.all(savedFolders.map(e => e.handle.isSameEntry(last).catch(() => false)));
+    if (!dup.some(Boolean)) recentEntry = { path: last.name, handle: last };
+   }
+  }
   renderSaved();
  }
 
@@ -739,6 +752,12 @@
 
  (async () => {
   activePath = embedded ? null : pathFromUrl();
+  // Top page (opened from the toolbar popup): do not reopen the previous
+  // folder or file, only offer folder selection.
+  if (startPage) {
+   await loadSavedFolders().catch(console.warn);
+   return;
+  }
   try {
    await loadSavedFolders();
    const handle = await loadHandle();
