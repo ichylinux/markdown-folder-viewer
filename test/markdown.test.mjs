@@ -109,3 +109,17 @@ test('paragraph line breaks use <br>', () => {
 test('windows and mac line endings are normalized', () => {
   assert.equal(html('# A\r\n\r\ntext\rtext'), '<h1 id="a">A</h1><p>text<br>text</p>');
 });
+
+test('details/summary blocks render as collapsible markup', () => {
+  const out = html('<details>\n<summary>✅ v1 — <b>x</b></summary>\n\n- [x] item\n\n</details>');
+  assert.equal(out, '<details><summary>✅ v1 — &lt;b&gt;x&lt;/b&gt;</summary><ul><li>[x] item</li></ul></details>');
+});
+
+test('details supports open attribute, nesting and fenced </details>', () => {
+  const out = html('<details open>\n<summary>a</summary>\n<details>\n<summary>b</summary>\ntext\n</details>\n```\n</details>\n```\n</details>\n\nafter');
+  assert.match(out, /^<details open><summary>a<\/summary><details><summary>b<\/summary><p>text<\/p><\/details><pre><code>&lt;\/details&gt;<\/code><\/pre><\/details><p>after<\/p>$/);
+});
+
+test('unclosed details does not swallow the render', () => {
+  assert.equal(html('<details>\n<summary>s</summary>\nbody'), '<details><summary>s</summary><p>body</p></details>');
+});

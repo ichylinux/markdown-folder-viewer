@@ -75,13 +75,58 @@
     && !/^\s*(#{1,6}\s|```|>|([-*+]\s+|\d+[.)]\s+))/.test(a)
     && !isHr(a)
     && /^\s*(=+|-{2,})\s*$/.test(b);
-  const isBlockStart = k => isFence(lines[k]) || isAtx(lines[k]) || isHr(lines[k])
+  const DETAILS_OPEN = /^\s*<details(\s+open)?\s*>\s*$/i;
+  const DETAILS_CLOSE = /^\s*<\/details>\s*$/i;
+  const isDetails = l => DETAILS_OPEN.test(l) || DETAILS_CLOSE.test(l);
+  const isBlockStart = k => isFence(lines[k]) || isAtx(lines[k]) || isHr(lines[k]) || isDetails(lines[k])
     || isQuote(lines[k]) || isList(lines[k])
     || isTableStart(lines[k], lines[k + 1]) || isSetext(lines[k], lines[k + 1]);
 
   while (i < lines.length) {
    const l = lines[i];
    if (!l.trim()) { i++; continue; }
+
+   // <details> / <summary> blocks: the tags are recognised here and re-emitted
+   // as fixed markup; everything inside is still rendered as escaped Markdown.
+   const dOpen = l.match(DETAILS_OPEN);
+   if (dOpen) {
+     i++;
+     const body = [];
+     let depth = 1, fenced = false;
+     while (i < lines.length) {
+       const x = lines[i];
+       if (isFence(x)) fenced = !fenced;
+       else if (!fenced) {
+         if (DETAILS_OPEN.test(x)) depth++;
+         else if (DETAILS_CLOSE.test(x) && --depth === 0) break;
+       }
+       body.push(x);
+       i++;
+     }
+     if (i < lines.length) i++; // skip the closing tag
+     let summary = '';
+     let k = 0;
+     while (k < body.length && !body[k].trim()) k++;
+     if (k < body.length && /^\s*<summary>/i.test(body[k])) {
+       const parts = [];
+       let closed = false;
+       while (k < body.length && !closed) {
+         let s = body[k++];
+         if (!parts.length) s = s.replace(/^\s*<summary>/i, '');
+         const end = s.search(/<\/summary>/i);
+         if (end >= 0) {
+           closed = true;
+           parts.push(s.slice(0, end));
+           const rest = s.slice(end).replace(/<\/summary>/i, '').trim();
+           if (rest) body.splice(k, 0, rest);
+         } else parts.push(s);
+       }
+       summary = parts.map(s => s.trim()).filter(Boolean).join(' ');
+       body.splice(0, k);
+     }
+     out += `<details${dOpen[1] ? ' open' : ''}>${summary ? `<summary>${inline(summary)}</summary>` : ''}${render(body.join('\n')).html}</details>`;
+     continue;
+   }
 
    if (isFence(l)) {
      const m = l.match(/^\s*```\s*([\w-]*)/);
@@ -148,8 +193,8 @@
  function sanitize(html) {
   const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
   const allowed = new Set(['A', 'P', 'BR', 'HR', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'STRONG', 'EM', 'DEL',
-    'CODE', 'PRE', 'BLOCKQUOTE', 'UL', 'OL', 'LI', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'IMG', 'DIV', 'SPAN']);
-  const attrs = new Set(['href', 'src', 'alt', 'title', 'id', 'class']);
+    'CODE', 'PRE', 'BLOCKQUOTE', 'UL', 'OL', 'LI', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'IMG', 'DIV', 'SPAN', 'DETAILS', 'SUMMARY']);
+  const attrs = new Set(['href', 'src', 'alt', 'title', 'id', 'class', 'open']);
   const badScheme = /^(javascript|vbscript|data|file):/i;
   const stripControl = v => v.replace(/[\u0000-\u001f\u007f]/g, '');
 

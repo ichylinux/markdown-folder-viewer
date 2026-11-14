@@ -491,3 +491,11 @@ body.picker {
 body.picker h1 {
   font-size: 18px;
 }
+
+.markdown-body details {
+  margin: 0 0 1em;
+}
+.markdown-body summary {
+  cursor: pointer;
+  font-weight: 600;
+}
