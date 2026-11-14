@@ -28,6 +28,7 @@
  let activePath = null;
  let searchTerm = '';
  let objectUrls = [];
+ const FILTER_KEY = 'filter'; // sidebar filter, kept across reloads
 
  /* ---------- folder selection and scanning ---------- */
 
@@ -63,7 +64,7 @@
   expandedPaths.clear();
  }
 
- // Refresh (and the initial load) only read the top level. Subfolders are
+ // The initial load only reads the top level. Subfolders are
  // scanned the first time the user expands them, so a large tree never pays
  // for a full recursive walk up front.
  async function scanFolder() {
@@ -81,7 +82,6 @@
   $('tree').innerHTML = '<p class="status">Scanning folder…</p>';
   try {
    await readDir('', rootHandle);
-   $('refresh').disabled = false;
    if (embedded) {
     await revealHostFile();
     return;
@@ -115,6 +115,23 @@
  // root and restored together with the open file's ancestors.
  function expandedKey() {
   return 'expanded:' + hostRoot;
+ }
+
+ // The filter survives reloads (and the pane's per-navigation reloads) so a
+ // narrow view is not lost whenever a file is opened.
+ function saveFilter() {
+  try {
+   if (searchTerm) localStorage.setItem(FILTER_KEY, searchTerm);
+   else localStorage.removeItem(FILTER_KEY);
+  } catch { /* storage unavailable: the filter stays in memory */ }
+ }
+
+ function restoreFilter() {
+  try {
+   return localStorage.getItem(FILTER_KEY) || '';
+  } catch {
+   return '';
+  }
  }
 
  function saveExpanded() {
@@ -679,13 +696,13 @@
 
  $('choose').addEventListener('click', chooseFolder);
  $('choose2').addEventListener('click', chooseFolder);
- // The pane may miss a folder picked in another window, so its Refresh also
- // re-reads the saved folder.
- $('refresh').addEventListener('click', () => (embedded ? reloadSavedFolder() : scanFolder()));
  $('search').addEventListener('input', e => {
   searchTerm = e.target.value.trim();
+  saveFilter();
   renderTree();
  });
+ searchTerm = restoreFilter();
+ $('search').value = searchTerm;
  window.addEventListener('popstate', () => {
   const path = pathFromUrl();
   if (path && path !== activePath) openFile(path, { push: false });
@@ -714,7 +731,6 @@
   document.body.classList.add('embedded');
   $('tree').before($('error'));
   showUnsaved('This file is not in a saved folder.');
-  $('refresh').disabled = false;
  }
 
  (async () => {
