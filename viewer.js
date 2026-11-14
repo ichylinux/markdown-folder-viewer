@@ -221,8 +221,22 @@
     $('tree').querySelector('.tree-row.active')?.scrollIntoView({ block: 'center' });
   }
 
+  function fileUrl(root, path) {
+    return 'file://' + (root + '/' + path).split('/').map(encodeURIComponent).join('/');
+  }
+
   function hostFileUrl(path) {
-    return 'file://' + (hostRoot + '/' + path).split('/').map(encodeURIComponent).join('/');
+    return fileUrl(hostRoot, path);
+  }
+
+  // Start page: a chosen folder that is also a saved one has a known disk
+  // location, so its files are opened as file:// pages (address bar shows the
+  // file URL). Folders whose location is unknown stay in this viewer.
+  async function savedRootPath() {
+    for (const entry of savedFolders) {
+      if (await entry.handle.isSameEntry(rootHandle).catch(() => false)) return entry.path;
+    }
+    return null;
   }
 
   // On first open, show a README so the folder's own landing page appears
@@ -430,6 +444,13 @@
     if (embedded) {
       window.parent.postMessage({ type: 'mfv-open', url: hostFileUrl(path) }, '*');
       return;
+    }
+    if (startPage) {
+      const root = await savedRootPath();
+      if (root) {
+        location.href = fileUrl(root, path);
+        return;
+      }
     }
     try {
       const file = await handle.getFile();
