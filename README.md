@@ -23,12 +23,17 @@ Chrome reveals only a picked folder's name, not its location, so the pane takes 
 ## Development
 ```bash
 npm test         # Markdown renderer tests (node --test, no dependencies)
-npm run icons    # regenerate icons/icon{16,48,128}.png from tools/make-icons.mjs
+npm run icons    # regenerate icons/icon{16,48,128}.png and store/icon128.png from tools/make-icons.mjs
 npm run package  # build dist/markdown-folder-viewer-<version>.zip for the Chrome Web Store
 ```
 Chrome does not accept SVG for manifest icons, so the PNGs are generated from the
 same shapes as `icons/icon.svg` by a dependency-free Node script. Re-run
 `npm run icons` after changing the design.
+
+`store/icon128.png` is the Chrome Web Store listing icon ("Store icon"): the same
+artwork at 96x96 with 16px of transparent padding, as the store's image guidelines
+recommend. Upload it on the store listing page; it is not part of the ZIP.
+`store/screenshots/` holds the listing screenshots (1280x800, 24-bit PNG without alpha).
 
 ## Notes / limitations
 - The extension has no host permissions and makes no network requests. Markdown rendering and sanitization are implemented locally in `markdown.js`.

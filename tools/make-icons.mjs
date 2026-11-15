@@ -5,12 +5,17 @@
 //   node tools/make-icons.mjs
 //
 // Output: icons/icon16.png, icons/icon48.png, icons/icon128.png
+//         store/icon128.png (Chrome Web Store listing icon: 96x96 artwork
+//         centered in 128x128 with 16px transparent padding, per the store's
+//         image guidelines; kept outside icons/ so it is not packaged)
 import { deflateSync } from 'node:zlib';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const OUT = join(dirname(fileURLToPath(import.meta.url)), '..', 'icons');
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const OUT = join(ROOT, 'icons');
+const STORE_OUT = join(ROOT, 'store');
 
 const BLUE = [9, 105, 218, 255];
 const WHITE = [255, 255, 255, 255];
@@ -61,15 +66,17 @@ function colorAt(x, y) {
   return null;
 }
 
-function render(size) {
+// pad: transparent border in output pixels; the artwork fills size - 2*pad.
+function render(size, pad = 0) {
+  const art = size - 2 * pad;
   const px = Buffer.alloc(size * size * 4);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       let r = 0, g = 0, b = 0, a = 0;
       for (let sy = 0; sy < SS; sy++) {
         for (let sx = 0; sx < SS; sx++) {
-          const ux = ((x + (sx + 0.5) / SS) * SIZE) / size;
-          const uy = ((y + (sy + 0.5) / SS) * SIZE) / size;
+          const ux = ((x - pad + (sx + 0.5) / SS) * SIZE) / art;
+          const uy = ((y - pad + (sy + 0.5) / SS) * SIZE) / art;
           const c = colorAt(ux, uy);
           if (!c) continue;
           r += c[0]; g += c[1]; b += c[2]; a += c[3];
@@ -141,3 +148,8 @@ for (const size of [16, 48, 128]) {
   writeFileSync(file, encodePng(size, render(size)));
   console.log(`wrote ${file}`);
 }
+
+mkdirSync(STORE_OUT, { recursive: true });
+const storeFile = join(STORE_OUT, 'icon128.png');
+writeFileSync(storeFile, encodePng(128, render(128, 16)));
+console.log(`wrote ${storeFile}`);
