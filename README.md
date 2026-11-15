@@ -7,18 +7,18 @@ A local-only Chrome extension (Manifest V3) for browsing Markdown files under a 
 2. Open `chrome://extensions` in Chrome.
 3. Enable **Developer mode**.
 4. Click **Load unpacked** and select this folder (the folder containing `manifest.json`).
-5. Click the extension icon, then **Open viewer**, and choose a folder.
+5. Open the extension's **Details** and turn on **Allow access to file URLs**.
+6. Open any local `.md` file in Chrome. It is rendered with the folder tree on the left, and the address bar shows the real file path.
 
 Requires Chrome 86 or newer (File System Access API).
 
-### Opening `file://` Markdown directly
-The extension can also render a Markdown file opened directly in Chrome, such as `file:///home/me/notes/README.md`, so the address bar shows the real file path.
+### Starting from a Markdown file
+The main entry point is a `file://` Markdown page, such as `file:///home/me/notes/README.md`, because that is the only way Chrome reveals the folder's disk location. The first time, click **Remember this folder** in the left pane and pick the folder that contains the open file (its own folder or any folder above it). Chrome does not allow a picker inside the pane, so a small window opens for this.
 
-1. On `chrome://extensions`, open the extension's **Details** and turn on **Allow access to file URLs**.
-2. Open a local `.md` file. The document is rendered, with the folder tree on the left.
-3. The first time, click **Remember this folder** in the left pane and pick the folder that contains the open file (its own folder or any folder above it). Chrome does not allow a picker inside the pane, so a small window opens for this.
+Chrome reveals only a picked folder's name, not its location, so the pane takes the location from the open file's path and records the folder automatically once it has confirmed that the folder really contains the open file. Saved folders are listed in the pane and open with one click; opening any file under a saved folder from the address bar also switches the tree to it. When the current folder already contains the open file, **Remember this folder** saves the file's parent folder without a picker; after the first visit no extra click is needed. Clicking a file in the tree navigates the tab to that file's `file://` URL, so the address bar shows the real path. This also applies when the viewer is opened normally (for example from the toolbar popup), because the folder's location has already been learned. Expanded folders are remembered across navigations.
 
-Chrome reveals only a picked folder's name, not its location, so the pane takes the location from the open file's path and saves the folder only if it really contains that file. Saved folders are listed in the pane and open with one click; opening any file under a saved folder from the address bar also switches the tree to it. When the current folder already contains the open file, **Remember this folder** saves the file's parent folder without a picker. Clicking a file in the tree navigates the tab to that file's `file://` URL. Expanded folders are remembered across navigations.
+### Toolbar popup
+**Open viewer** opens a start page that lists saved folders (and the last used folder) and explains how to open a Markdown file. It deliberately offers no folder picker: Chrome never reveals the location of a folder picked there, so the folder could neither be saved with its path nor open files as `file://` pages. To add a folder, open a Markdown file from it in Chrome once; it is recorded automatically after that.
 
 ## Development
 ```bash
@@ -33,9 +33,10 @@ same shapes as `icons/icon.svg` by a dependency-free Node script. Re-run
 - The extension has no host permissions and makes no network requests. Markdown rendering and sanitization are implemented locally in `markdown.js`.
 - To keep the package self-contained and offline, the Markdown parser is a lightweight built-in renderer rather than the full CommonMark specification. It supports headings (ATX and setext), paragraphs, emphasis, inline code, fenced code blocks, links, images, blockquotes, lists, horizontal rules, and basic pipe tables. Nested lists are flattened to a single level, and raw HTML in source files is escaped rather than rendered.
 - The Mermaid renderer currently supports simple `flowchart` / `graph` diagrams with `TD`, `TB`, `LR`, `RL`, and `BT` direction and basic node/edge syntax. It is not the full Mermaid engine; advanced Mermaid syntax is shown as source code instead of being rendered.
-- Folder handles are saved in IndexedDB. After a browser restart Chrome usually needs permission again; the viewer offers a **Grant access** button so you do not have to re-pick the folder. If that fails, choose the folder again.
+- Folder handles are saved in IndexedDB. After a browser restart Chrome usually needs permission again; the viewer offers a **Grant access** button so you do not have to re-pick the folder. If that fails, open a file from the folder in Chrome again.
 - Folders start collapsed and are scanned lazily: the initial load reads only the top level, and expanding a folder scans just that folder's direct children. Opening a relative link to a file in an unopened folder still works. The file counter reflects the levels loaded so far.
 - The current document is preserved when you switch files.
+- The address bar shows the open file's absolute path (`file:///…`) whenever the folder's disk location is known. Chrome's folder picker never reveals that location, and no Chrome API exposes it, so folders are only added by opening one of their Markdown files in Chrome. A folder whose location is still unknown (for example the last used folder after a failed pick) opens inside the viewer with a relative `?file=` URL.
 - On first open, the viewer shows the top-level `README.md` so the folder's landing page appears instead of the alphabetically first file. If there is no top-level README, the first top-level Markdown file is shown.
 - Relative Markdown links are resolved inside the selected folder. Remote HTTP(S) links open in a new tab. Relative images are read from the selected folder.
 - This extension is read-only; it does not modify local files.

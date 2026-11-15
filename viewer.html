@@ -9,9 +9,6 @@
 <body>
   <header class="topbar">
     <div class="brand">Markdown Folder Viewer</div>
-    <div class="toolbar">
-      <button type="button" id="choose">Choose folder</button>
-    </div>
   </header>
 
   <main class="layout">
@@ -21,20 +18,25 @@
         <strong id="folderName">No folder selected</strong>
         <span id="fileCount"></span>
       </div>
+      <p id="locationNote" class="location-note" hidden></p>
       <div class="sidebar-filter">
         <input id="search" type="search" placeholder="Filter files…" aria-label="Filter files">
       </div>
       <nav id="tree" aria-label="Markdown files">
-        <p class="muted">Choose a folder to start.</p>
+        <p class="muted">Open a Markdown file in Chrome, or pick a saved folder on the left.</p>
       </nav>
     </aside>
 
     <section class="reader">
       <div id="welcome" class="welcome">
-        <h1>Read Markdown from a local folder</h1>
-        <p>Choose a folder. Markdown files in that folder appear in the tree; expand a folder to load its contents.</p>
-        <button type="button" id="choose2">Choose folder</button>
-        <p class="muted">The folder stays on your device. Access may need to be re-authorized by Chrome later.</p>
+        <h1>Open a Markdown file in Chrome</h1>
+        <p>This extension renders local Markdown files and shows the file's folder on the left, with the real path in the address bar.</p>
+        <ol>
+          <li>On <code>chrome://extensions</code>, open this extension's <b>Details</b> and turn on <b>Allow access to file URLs</b>.</li>
+          <li>Open a local <code>.md</code> file in Chrome (<kbd>Ctrl</kbd>+<kbd>O</kbd>, or a <code>file:///&hellip;</code> address).</li>
+          <li>On the rendered file, click <b>Remember this folder</b> in the left pane and pick the folder that contains it. It is recorded automatically after that.</li>
+        </ol>
+        <p class="muted">Saved folders are listed on the left and open with one click. Chrome does not reveal the location of a folder picked by the viewer, so the viewer does not offer a folder picker.</p>
       </div>
       <div id="error" class="welcome" role="alert" hidden></div>
       <article id="document" class="markdown-body" hidden></article>

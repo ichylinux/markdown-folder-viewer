@@ -45,20 +45,6 @@
     window.open('pick.html' + (mode ? '?mode=' + mode : ''), 'mfv-pick', 'popup,width=480,height=280');
   }
 
-  async function chooseFolder() {
-    if (!window.showDirectoryPicker) {
-      showError('This Chrome version does not support the File System Access API. Please update Chrome.');
-      return;
-    }
-    try {
-      rootHandle = await window.showDirectoryPicker({ mode: 'read' });
-      await saveHandle(rootHandle);
-      await scanFolder();
-    } catch (e) {
-      if (e.name !== 'AbortError') showError('Could not open folder: ' + e.message);
-    }
-  }
-
   function resetTree() {
     treeGeneration++;
     fileMap.clear();
@@ -77,7 +63,7 @@
     if (!ok) {
       showError(embedded
         ? 'Folder permission was not granted.'
-        : 'Folder permission was not granted. Click “Choose folder” and select it again.');
+        : 'Folder permission was not granted. Open a file from this folder in Chrome again to grant access.');
       return;
     }
     resetTree();
@@ -97,6 +83,7 @@
       const next = (await fileHandleFor(activePath)) ? activePath : pickInitialPath();
       if (next) await openFile(next, { push: false });
       else showWelcome();
+      await updateLocationNote();
     } catch (e) {
       showError('Could not read folder: ' + e.message);
     }
@@ -204,8 +191,22 @@
     hostRoot = found.root;
     activePath = found.rel;
     $('error').hidden = true;
-    if (remembering) await storeSaved([...savedFolders.filter(e => e.path !== hostRoot), { path: hostRoot, handle: rootHandle }]);
-    else renderSaved();
+    // Remember the discovered disk location even when the reader did not ask:
+    // with it, later sessions (including the toolbar popup flow) open files as
+    // file:// pages and the address bar shows the real path.
+    const known = savedFolders.some(entry => entry.path === hostRoot);
+    if (remembering || !known) {
+      const list = [...savedFolders.filter(entry => entry.path !== hostRoot), { path: hostRoot, handle: rootHandle }];
+      try {
+        await storeSaved(list);
+      } catch (e) {
+        // A storage failure must not stop the document from rendering.
+        console.warn('Could not remember ' + hostRoot, e);
+        renderSaved();
+      }
+    } else {
+      renderSaved();
+    }
     const parts = activePath.split('/');
     const wanted = parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('/'));
     try {
@@ -229,11 +230,14 @@
     return fileUrl(hostRoot, path);
   }
 
-  // Start page: a chosen folder that is also a saved one has a known disk
+  // Any top-level page: a folder that is also a saved one has a known disk
   // location, so its files are opened as file:// pages (address bar shows the
-  // file URL). Folders whose location is unknown stay in this viewer.
+  // file URL). Folders whose location is unknown (picked through the picker
+  // only, which hides the path) stay in this viewer.
   async function savedRootPath() {
+    if (!rootHandle) return null;
     for (const entry of savedFolders) {
+      if (!entry.path.startsWith('/')) continue;
       if (await entry.handle.isSameEntry(rootHandle).catch(() => false)) return entry.path;
     }
     return null;
@@ -429,11 +433,15 @@
   }
 
   // Keep '/' readable in the address bar; everything else is escaped so '#',
-  // '?' and '&' in file names cannot break the URL.
+  // '?' and '&' in file names cannot break the URL. Other parameters (such as
+  // the start page flag) are kept, so a reload does not change the page mode.
   function setUrlPath(path, push) {
     if (pathFromUrl() === path) return;
-    const query = path ? '?file=' + encodeURIComponent(path).replace(/%2F/g, '/') : '';
-    const url = location.pathname + query;
+    const params = new URLSearchParams(location.search);
+    if (path) params.set('file', path);
+    else params.delete('file');
+    const query = params.toString().replace(/%2F/g, '/');
+    const url = location.pathname + (query ? '?' + query : '');
     if (push) history.pushState(null, '', url);
     else history.replaceState(null, '', url);
   }
@@ -445,12 +453,12 @@
       window.parent.postMessage({ type: 'mfv-open', url: hostFileUrl(path) }, '*');
       return;
     }
-    if (startPage) {
-      const root = await savedRootPath();
-      if (root) {
-        location.href = fileUrl(root, path);
-        return;
-      }
+    // The address bar shows the real path whenever the folder's disk location
+    // is known; otherwise the document is rendered here.
+    const root = await savedRootPath();
+    if (root) {
+      location.href = fileUrl(root, path);
+      return;
     }
     try {
       const file = await handle.getFile();
@@ -574,7 +582,22 @@
 
   /* ---------- status screens ---------- */
 
+  // Tell the reader why the address bar is a viewer URL: the folder was chosen
+  // through the picker, which does not reveal its disk location. Opening any
+  // file from the folder as a file:// page records it automatically.
+  async function updateLocationNote() {
+    const note = $('locationNote');
+    if (embedded || !rootHandle) {
+      note.hidden = true;
+      return;
+    }
+    const known = !!(await savedRootPath());
+    note.hidden = known;
+    note.textContent = known ? '' : 'The address bar keeps a viewer URL: this folder\u2019s location is not recorded yet. Open one of its .md files directly in Chrome (file://) once to record it.';
+  }
+
   function showWelcome() {
+    $('locationNote').hidden = true;
     activePath = null;
     setUrlPath(null, false);
     $('error').hidden = true;
@@ -584,6 +607,7 @@
   }
 
   function showError(msg) {
+    $('locationNote').hidden = true;
     $('welcome').hidden = true;
     $('document').hidden = true;
     const box = $('error');
@@ -595,47 +619,56 @@
     p.className = 'error';
     p.textContent = msg;
     box.append(h, p);
-    if (embedded) return; // the pane picks folders through “Remember this folder”
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.textContent = 'Choose folder';
-    b.addEventListener('click', chooseFolder);
-    box.appendChild(b);
   }
 
   /* ---------- saved folders (pane only) ---------- */
+
+  function savedTitle(text) {
+    const title = document.createElement('div');
+    title.className = 'saved-title';
+    title.textContent = text;
+    return title;
+  }
+
+  function savedRow(entry, removable) {
+    const row = document.createElement('div');
+    row.className = 'saved-row';
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'tree-row';
+    // A last-used folder only has a name until its location is learned from a
+    // file:// page, so it gets no absolute path in the tooltip.
+    open.title = entry.path.startsWith('/') ? entry.path : 'Last used folder — location not recorded yet';
+    open.innerHTML = '<span aria-hidden="true">📁</span><span class="filename"></span>';
+    open.querySelector('.filename').textContent = entry.path.slice(entry.path.lastIndexOf('/') + 1);
+    open.addEventListener('click', () => openSaved(entry));
+    row.append(open);
+    if (!removable) return row;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'saved-remove';
+    remove.title = 'Forget ' + entry.path;
+    remove.setAttribute('aria-label', remove.title);
+    remove.textContent = '×';
+    remove.addEventListener('click', () => forgetFolder(entry));
+    row.append(remove);
+    return row;
+  }
 
   function renderSaved() {
     const box = $('saved');
     box.hidden = false;
     box.replaceChildren();
     if (hostRoot && activePath && !coveringEntry()) box.appendChild(rememberButton());
-    const entries = recentEntry ? [...savedFolders, recentEntry] : savedFolders;
-    if (!entries.length) return;
-    const title = document.createElement('div');
-    title.className = 'saved-title';
-    title.textContent = 'Saved folders';
-    box.appendChild(title);
-    for (const entry of entries) {
-      const row = document.createElement('div');
-      row.className = 'saved-row';
-      const open = document.createElement('button');
-      open.type = 'button';
-      open.className = 'tree-row';
-      open.title = entry.path;
-      open.innerHTML = '<span aria-hidden="true">📁</span><span class="filename"></span>';
-      open.querySelector('.filename').textContent = entry.path.slice(entry.path.lastIndexOf('/') + 1);
-      open.addEventListener('click', () => openSaved(entry));
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.className = 'saved-remove';
-      remove.title = 'Forget ' + entry.path;
-      remove.setAttribute('aria-label', remove.title);
-      remove.textContent = '×';
-      remove.addEventListener('click', () => forgetFolder(entry));
-      row.append(open);
-      if (entry !== recentEntry) row.append(remove);
-      box.appendChild(row);
+    if (savedFolders.length) {
+      box.appendChild(savedTitle('Saved folders'));
+      for (const entry of savedFolders) box.appendChild(savedRow(entry, true));
+    }
+    // The last-used folder may never have been opened as a file:// page, so it
+    // is not a saved folder and cannot drive file:// navigation yet.
+    if (recentEntry) {
+      box.appendChild(savedTitle('Last used'));
+      box.appendChild(savedRow(recentEntry, false));
     }
   }
 
@@ -674,8 +707,9 @@
     openPicker();
   }
 
-  function forgetFolder(entry) {
-    return storeSaved(savedFolders.filter(e => e !== entry));
+  async function forgetFolder(entry) {
+    await storeSaved(savedFolders.filter(e => e !== entry));
+    updateLocationNote();
   }
 
   async function openSaved(entry) {
@@ -688,7 +722,7 @@
     } catch { /* no prompt from this frame: fall back to the window */ }
     if (granted) await scanFolder();
     else if (embedded) openPicker('grant');
-    else showError('Folder permission was not granted. Click “Choose folder” and select it again.');
+    else showReconnect(entry.handle);
   }
 
   // Chrome drops handle permissions on restart. Offer a one-click re-grant
@@ -717,15 +751,13 @@
       if (granted) await scanFolder();
       else if (embedded) openPicker('grant');
       else if (error) showError('Could not re-open folder: ' + error.message);
-      else showError('Folder permission was not granted. Click “Choose folder” and select it again.');
+      else showError('Folder permission was not granted. Open a file from this folder in Chrome again to grant access.');
     });
     box.append(h, p, b);
   }
 
   /* ---------- wiring ---------- */
 
-  $('choose').addEventListener('click', chooseFolder);
-  $('choose2').addEventListener('click', chooseFolder);
   $('search').addEventListener('input', e => {
     searchTerm = e.target.value.trim();
     saveFilter();
@@ -738,7 +770,6 @@
     if (path && path !== activePath) openFile(path, { push: false });
   });
   async function loadSavedFolders() {
-    if (!embedded && !startPage) return;
     savedFolders = (await loadHandle('saved')) || [];
     if (startPage) {
       const last = await loadHandle();
@@ -748,7 +779,9 @@
         if (!dup.some(Boolean)) recentEntry = { path: last.name, handle: last };
       }
     }
-    renderSaved();
+    // The list belongs to the pane and the start page. A plain viewer only uses
+    // the entries to turn clicks into file:// navigation.
+    if (embedded || startPage) renderSaved();
   }
 
   async function reloadSavedFolder() {
@@ -773,9 +806,11 @@
 
   (async () => {
     activePath = embedded ? null : pathFromUrl();
-    // Top page (opened from the toolbar popup): do not reopen the previous
-    // folder or file, only offer folder selection.
-    if (startPage) {
+    // Top page (opened from the toolbar popup) without a file: do not reopen
+    // the previous folder, just list the saved folders and explain how to open
+    // a Markdown file in Chrome. A file in the URL (the reader was reloaded) is
+    // restored like on any other viewer page.
+    if (startPage && !activePath) {
       await loadSavedFolders().catch(console.warn);
       return;
     }

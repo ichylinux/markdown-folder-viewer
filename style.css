@@ -50,12 +50,6 @@ body {
   white-space: nowrap;
 }
 
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 button {
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -112,6 +106,15 @@ input[type=search] {
 .muted {
   color: var(--muted);
   font-size: 12px;
+}
+
+.location-note {
+  margin: 0;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .sidebar-filter {
@@ -187,6 +190,26 @@ input[type=search] {
 
 .welcome h1 {
   font-size: 28px;
+}
+
+.welcome ol {
+  margin: 0 0 12px;
+  padding-left: 22px;
+  text-align: left;
+}
+
+.welcome li {
+  margin: 6px 0;
+}
+
+.welcome code,
+.welcome kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
 }
 
 /* Markdown body */
@@ -370,10 +393,6 @@ input[type=search] {
     padding: 12px;
   }
 
-  .toolbar {
-    flex-wrap: wrap;
-  }
-
   .layout {
     height: auto;
     min-height: calc(100vh - 90px);
@@ -399,8 +418,7 @@ body.embedded {
 }
 
 body.embedded .brand,
-body.embedded .reader,
-body.embedded #choose {
+body.embedded .reader {
   display: none;
 }
 
