@@ -10,7 +10,7 @@ A local-only Chrome extension (Manifest V3) for browsing Markdown files under a 
 5. Open the extension's **Details** and turn on **Allow access to file URLs**.
 6. Open any local `.md` file in Chrome. It is rendered with the folder tree on the left, and the address bar shows the real file path.
 
-Requires Chrome 86 or newer (File System Access API).
+Requires Chrome 88 or newer (the Chrome Web Store minimum for Manifest V3).
 
 ### Starting from a Markdown file
 The main entry point is a `file://` Markdown page, such as `file:///home/me/notes/README.md`, because that is the only way Chrome reveals the folder's disk location. The first time, click **Remember this folder** in the left pane and pick the folder that contains the open file (its own folder or any folder above it). Chrome does not allow a picker inside the pane, so a small window opens for this.
