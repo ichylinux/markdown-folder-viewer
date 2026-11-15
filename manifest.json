@@ -1,10 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Markdown Folder Viewer",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Browse a local folder of Markdown files with a tree, table of contents, and basic Mermaid flowcharts.",
   "minimum_chrome_version": "88",
-  "permissions": ["unlimitedStorage"],
   "action": {
     "default_title": "Markdown Folder Viewer",
     "default_popup": "popup.html",
