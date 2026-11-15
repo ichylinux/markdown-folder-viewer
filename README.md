@@ -22,8 +22,9 @@ Chrome reveals only a picked folder's name, not its location, so the pane takes 
 
 ## Development
 ```bash
-npm test       # Markdown renderer tests (node --test, no dependencies)
-npm run icons  # regenerate icons/icon{16,48,128}.png from tools/make-icons.mjs
+npm test         # Markdown renderer tests (node --test, no dependencies)
+npm run icons    # regenerate icons/icon{16,48,128}.png from tools/make-icons.mjs
+npm run package  # build dist/markdown-folder-viewer-<version>.zip for the Chrome Web Store
 ```
 Chrome does not accept SVG for manifest icons, so the PNGs are generated from the
 same shapes as `icons/icon.svg` by a dependency-free Node script. Re-run
