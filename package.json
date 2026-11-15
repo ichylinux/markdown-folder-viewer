@@ -5,7 +5,7 @@
   "description": "Local-only Chrome extension for browsing a folder of Markdown files.",
   "type": "module",
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test test/*.mjs",
     "icons": "node tools/make-icons.mjs",
     "package": "node tools/package.mjs"
   }
