@@ -63,6 +63,10 @@ window.MfvRender = (() => {
     const ns = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(ns, 'svg');
     svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    // Natural size; CSS max-width shrinks it in narrow columns but never
+    // blows a small chart up to the full column width.
+    svg.setAttribute('width', w);
+    svg.setAttribute('height', h);
     svg.setAttribute('role', 'img');
     svg.setAttribute('aria-label', 'Mermaid flowchart');
 
@@ -85,16 +89,17 @@ window.MfvRender = (() => {
     arr.forEach((n, i) => {
       pos[n.id] = lr
         ? { x: 30 + i * (w - 150) / Math.max(1, arr.length - 1), y: h / 2 }
-        : { x: w / 2, y: 30 + i * 90 };
+        : { x: w / 2 - 55, y: 30 + i * 90 };
     });
 
     for (const [a, b] of edges) {
       if (!pos[a] || !pos[b]) continue;
       const line = document.createElementNS(ns, 'line');
-      line.setAttribute('x1', pos[a].x + 55);
-      line.setAttribute('y1', pos[a].y + 18);
-      line.setAttribute('x2', pos[b].x + 55);
-      line.setAttribute('y2', pos[b].y - 18);
+      // LR: right edge to left edge; TD: bottom edge to top edge.
+      line.setAttribute('x1', lr ? pos[a].x + 110 : pos[a].x + 55);
+      line.setAttribute('y1', lr ? pos[a].y : pos[a].y + 18);
+      line.setAttribute('x2', lr ? pos[b].x - 2 : pos[b].x + 55);
+      line.setAttribute('y2', lr ? pos[b].y : pos[b].y - 18);
       line.setAttribute('stroke', 'currentColor');
       line.setAttribute('stroke-width', '1.5');
       line.setAttribute('marker-end', 'url(#mermaid-arrow)');

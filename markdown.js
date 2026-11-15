@@ -201,7 +201,8 @@
     const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
     const allowed = new Set(['A', 'P', 'BR', 'HR', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'STRONG', 'EM', 'DEL',
         'CODE', 'PRE', 'BLOCKQUOTE', 'UL', 'OL', 'LI', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'IMG', 'DIV', 'SPAN', 'DETAILS', 'SUMMARY']);
-    const attrs = new Set(['href', 'src', 'alt', 'title', 'id', 'class', 'open']);
+    // data-mermaid marks fenced mermaid blocks for MfvRender.renderMermaid.
+    const attrs = new Set(['href', 'src', 'alt', 'title', 'id', 'class', 'open', 'data-mermaid']);
     const badScheme = /^(javascript|vbscript|data|file):/i;
     const stripControl = v => v.replace(/[\u0000-\u001f\u007f]/g, '');
 
