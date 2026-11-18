@@ -33,6 +33,7 @@
   let searchTerm = '';
   let objectUrls = [];
   const FILTER_KEY = 'filter'; // sidebar filter, kept across reloads
+  const SAVED_COLLAPSED_KEY = 'savedCollapsed';
 
   /* ---------- folder selection and scanning ---------- */
 
@@ -630,6 +631,36 @@
     return title;
   }
 
+  // The pane reloads on every navigation, so the collapsed state is stored.
+  function savedCollapsed() {
+    try {
+      return localStorage.getItem(SAVED_COLLAPSED_KEY) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  function savedToggle(list) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'saved-title saved-toggle';
+    b.innerHTML = '<span class="twisty" aria-hidden="true"></span><span>Saved folders</span>';
+    const sync = () => {
+      b.setAttribute('aria-expanded', String(!list.hidden));
+      b.querySelector('.twisty').textContent = list.hidden ? '▸' : '▾';
+    };
+    sync();
+    b.addEventListener('click', () => {
+      list.hidden = !list.hidden;
+      sync();
+      try {
+        if (list.hidden) localStorage.setItem(SAVED_COLLAPSED_KEY, '1');
+        else localStorage.removeItem(SAVED_COLLAPSED_KEY);
+      } catch { /* storage unavailable: the state stays in memory */ }
+    });
+    return b;
+  }
+
   function savedRow(entry, removable) {
     const row = document.createElement('div');
     row.className = 'saved-row';
@@ -661,8 +692,10 @@
     box.replaceChildren();
     if (hostRoot && activePath && !coveringEntry()) box.appendChild(rememberButton());
     if (savedFolders.length) {
-      box.appendChild(savedTitle('Saved folders'));
-      for (const entry of savedFolders) box.appendChild(savedRow(entry, true));
+      const list = document.createElement('div');
+      list.hidden = savedCollapsed();
+      for (const entry of savedFolders) list.appendChild(savedRow(entry, true));
+      box.append(savedToggle(list), list);
     }
     // The last-used folder may never have been opened as a file:// page, so it
     // is not a saved folder and cannot drive file:// navigation yet.
