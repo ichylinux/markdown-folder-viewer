@@ -183,7 +183,7 @@
       $('folderName').textContent = '';
       $('fileCount').textContent = '';
       showUnsaved(remembering
-        ? `“${rootHandle.name}” does not contain this file, so it was not saved.`
+        ? `“${rootHandle.name}” does not contain the Markdown file you are viewing, so it was not saved. Choose the folder that contains it instead.`
         : 'This file is not in a saved folder.');
       $('error').hidden = true;
       renderSaved();
@@ -737,7 +737,7 @@
       return;
     }
     pendingRemember = true;
-    openPicker();
+    openPicker('remember');
   }
 
   async function forgetFolder(entry) {

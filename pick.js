@@ -3,7 +3,8 @@
 (async () => {
   const $ = id => document.getElementById(id);
   const channel = new BroadcastChannel('markdown-folder-viewer');
-  const saved = new URLSearchParams(location.search).get('mode') === 'grant' ? await MfvHandles.load() : null;
+  const mode = new URLSearchParams(location.search).get('mode');
+  const saved = mode === 'grant' ? await MfvHandles.load() : null;
 
   function done() {
     channel.postMessage({ type: 'root-changed' });
@@ -13,6 +14,9 @@
   if (saved) {
     $('message').textContent = `Chrome requires permission again to read “${saved.name}”. Your files stay on this device.`;
     $('action').textContent = 'Grant access';
+  } else if (mode === 'remember') {
+    $('message').textContent = 'Chrome does not let the sidebar open a folder picker, so this window appears instead. Choose the folder that contains the Markdown file you are viewing (its own folder or any folder above it). That folder is what will be saved.';
+    $('action').textContent = 'Choose containing folder';
   }
 
   $('action').addEventListener('click', async () => {
