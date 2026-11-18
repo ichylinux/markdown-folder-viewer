@@ -2,6 +2,28 @@
 
 A local-only Chrome extension (Manifest V3) for browsing Markdown files under a user-selected folder. It includes a lazily loaded folder tree, file filtering, a table of contents, relative `.md` links, relative image paths, and a **small built-in Mermaid flowchart subset renderer**.
 
+## Screenshots
+
+Start page — saved folders and how to open a local Markdown file:
+
+![Start page](store/screenshots/5-start.png)
+
+Folder tree, table of contents, and built-in Mermaid flowcharts:
+
+![Overview](store/screenshots/2-overview.png)
+
+First-time **Remember this folder** flow:
+
+![Onboarding](store/screenshots/3-onboarding.png)
+
+Top-level `README.md` as the folder landing page:
+
+![README landing](store/screenshots/1-readme.png)
+
+Dark theme:
+
+![Dark theme](store/screenshots/4-release-dark.png)
+
 ## Install
 1. Extract the ZIP to a folder.
 2. Open `chrome://extensions` in Chrome.
