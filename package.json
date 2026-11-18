@@ -7,6 +7,7 @@
   "scripts": {
     "test": "node --test test/*.mjs",
     "icons": "node tools/make-icons.mjs",
+    "screenshots": "node tools/frame-screenshots.mjs",
     "package": "node tools/package.mjs"
   }
 }

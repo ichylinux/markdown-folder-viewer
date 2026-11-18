@@ -56,6 +56,8 @@ same shapes as `icons/icon.svg` by a dependency-free Node script. Re-run
 artwork at 96x96 with 16px of transparent padding, as the store's image guidelines
 recommend. Upload it on the store listing page; it is not part of the ZIP.
 `store/screenshots/` holds the listing screenshots (1280x800, 24-bit PNG without alpha).
+Re-run `npm run screenshots` after replacing those PNGs to draw the 1px `#d0d7de` edge
+used in the README on GitHub (baked into the image, not added by CSS).
 
 ## Notes / limitations
 - The extension has no host permissions and makes no network requests. Markdown rendering and sanitization are implemented locally in `markdown.js`.
