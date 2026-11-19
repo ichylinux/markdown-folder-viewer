@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Markdown security probe</title>
+</head>
+<body>
+<p id="status">running</p>
+<pre id="result">not run</pre>
+<script src="../../markdown.js"></script>
+<script>
+// Browser-side half of the sanitizer/renderer security tests. It feeds hostile
+// Markdown/HTML through the renderer and the sanitizer and reports what
+// actually reached the DOM. tools/test-dom.mjs drives this page with headless
+// Chrome and fails if any case reports a problem. Needs a real DOM
+// (DOMParser), which is why this half cannot run under node --test.
+//
+// __SELF__ in a payload is replaced with the case name, so a handler that
+// fires reports exactly which case leaked.
+(() => {
+  const { render, sanitize } = window.MiniMarkdown;
+  const fired = [];
+  window.__pwned = fired;
+
+  const BAD_TAGS = /^(SCRIPT|STYLE|IFRAME|FRAME|FRAMESET|OBJECT|EMBED|APPLET|FORM|INPUT|BUTTON|SELECT|TEXTAREA|BASE|LINK|META|SVG|MATH|TEMPLATE|NOSCRIPT|XMP|PLAINTEXT|MARQUEE|ISINDEX|LISTING)$/;
+  const HEADINGS = /^H[1-6]$/;
+  const P = 'window.__pwned.push';
+
+  // Independent restatement of the attribute policy: ids on headings only,
+  // classes only where the renderer emits them, image sources inside the
+  // folder and link targets on a safe scheme.
+  function audit(root) {
+    const problems = [];
+    for (const el of root.querySelectorAll('*')) {
+      const tag = el.tagName.toUpperCase();
+      if (el.namespaceURI !== 'http://www.w3.org/1999/xhtml') problems.push('foreign namespace element: ' + el.tagName);
+      if (BAD_TAGS.test(tag)) problems.push('tag: ' + el.tagName);
+      for (const a of el.attributes) {
+        const name = a.name.toLowerCase();
+        const value = a.value;
+        if (name.startsWith('on')) { problems.push('event handler attribute: ' + name); continue; }
+        if (name === 'href') {
+          if (/^[a-z][a-z0-9+.-]*:/i.test(value) && !/^(https?|mailto|tel):/i.test(value)) problems.push('bad href scheme: ' + value.slice(0, 40));
+        } else if (name === 'src') {
+          if (/^[a-z][a-z0-9+.-]*:/i.test(value) || /^[\\/]/.test(value)) problems.push('non-local img src: ' + value.slice(0, 40));
+        } else if (name === 'id') {
+          if (!HEADINGS.test(tag) || !/^[\p{L}\p{N}_-]+$/u.test(value)) problems.push('unexpected id: ' + value);
+        } else if (name === 'class') {
+          const ok = tag === 'CODE' ? /^language-[a-z0-9_+-]+$/i.test(value) : (tag === 'DIV' && value === 'mermaid-source');
+          if (!ok) problems.push('unexpected class: ' + value);
+        } else if (name === 'data-mermaid') {
+          if (tag !== 'DIV' || value !== '1') problems.push('unexpected data-mermaid on ' + tag);
+        } else if (!['alt', 'title', 'open'].includes(name)) {
+          problems.push('unexpected attribute ' + name + ' on ' + tag);
+        }
+        if (name === 'open' && tag !== 'DETAILS') problems.push('open on ' + tag);
+      }
+    }
+    return problems;
+  }
+
+  const self = `'__SELF__'`;
+  const cases = [
+    // --- renderer: source HTML is text, never markup ---
+    { kind: 'render', name: 'render:script', src: '<script>' + P + '(' + self + ')<\/script>', must: [/&lt;script/], mustNot: [/<script/i] },
+    { kind: 'render', name: 'render:img-onerror', src: `<img src=x onerror="${P}(${self})">`, mustNot: [/<img/i] },
+    { kind: 'render', name: 'render:svg-onload', src: `<svg onload="${P}(${self})"></svg>`, mustNot: [/<svg/i] },
+    { kind: 'render', name: 'render:details-summary', src: `<details><summary><img src=x onerror="${P}(${self})"></summary>x</details>`, mustNot: [/<img/i, /<details/i] },
+    { kind: 'render', name: 'render:heading-html', src: `# <img src=x onerror="${P}(${self})">`, must: [/<h1 id="section">/], mustNot: [/<img/i] },
+    { kind: 'render', name: 'render:table-cell', src: `| a | b |\n| --- | --- |\n| <img src=x onerror="${P}(${self})"> | 2 |`, must: [/<table>/], mustNot: [/<img/i] },
+    { kind: 'render', name: 'render:list-item', src: `- <img src=x onerror="${P}(${self})">`, mustNot: [/<img/i] },
+    { kind: 'render', name: 'render:code-span', src: '`' + `<img src=x onerror="${P}(${self})">` + '`', must: [/<code>/], mustNot: [/<img/i] },
+    { kind: 'render', name: 'render:code-fence', src: '```\n' + `<img src=x onerror="${P}(${self})">` + '\n```', must: [/<pre><code>/], mustNot: [/<img/i] },
+    { kind: 'render', name: 'render:mermaid-label', src: '```mermaid\nflowchart TD\nA[' + `<img src=x onerror="${P}(${self})">` + '] --> B\n```', must: [/data-mermaid="1"/], mustNot: [/<img/i] },
+    { kind: 'render', name: 'render:blockquote', src: `> <img src=x onerror="${P}(${self})">`, must: [/<blockquote>/], mustNot: [/<img/i] },
+    { kind: 'render', name: 'render:title-extra-attribute', src: '[a](x.md "t" onmouseover="x")', mustNot: [/<a/i, /<img/i] },
+    { kind: 'render', name: 'render:image-alt-breakout', src: `![a&quot; onerror=&quot;${P}(${self})](x.png)`, must: [/alt="a&amp;quot; onerror/] },
+
+    // --- renderer: URL policy ---
+    { kind: 'render', name: 'render:remote-image', src: '![x](https://evil.example/p.png)', must: [/<a href="https:\/\/evil\.example\/p\.png">x<\/a>/], mustNot: [/<img/i] },
+    { kind: 'render', name: 'render:remote-image-no-alt', src: '![](https://evil.example/p.png)', must: [/<a href="https:\/\/evil\.example\/p\.png">https:\/\/evil\.example\/p\.png<\/a>/], mustNot: [/<img/i] },
+    { kind: 'render', name: 'render:protocol-image', src: '![x](//evil.example/p.png)', mustNot: [/<img/i] },
+    { kind: 'render', name: 'render:protocol-link', src: '[x](//evil.example/a)', must: [/href="\/\/evil\.example\/a"/] },
+    { kind: 'render', name: 'render:javascript-link', src: `[x](javascript:${P}(${self}))`, must: [/<a>x<\/a>/], mustNot: [/href=/] },
+    { kind: 'render', name: 'render:javascript-image', src: `![x](javascript:${P}(${self}))`, mustNot: [/href=/, /<img/i] },
+    { kind: 'render', name: 'render:data-image', src: '![x](data:image/svg+xml;base64,PHN2Zy8+)', mustNot: [/src=/, /href=/] },
+    { kind: 'render', name: 'render:file-link', src: '[x](file:///etc/passwd)', mustNot: [/href=/] },
+    { kind: 'render', name: 'render:blob-link', src: '[x](blob:chrome-extension://abc/x)', mustNot: [/href=/] },
+    { kind: 'render', name: 'render:chrome-link', src: '[x](chrome-extension://abc/viewer.html)', mustNot: [/href=/] },
+    { kind: 'render', name: 'render:mailto-link', src: '[m](mailto:a@b.example)', must: [/href="mailto:a@b\.example"/] },
+    { kind: 'render', name: 'render:tab-scheme-link', src: '[x](java\tscript:alert(1))', mustNot: [/href="javascript:/i, /href="java\tscript:/i] },
+    { kind: 'render', name: 'render:relative-link', src: '[a](sub/x.md)', must: [/href="sub\/x\.md"/] },
+    { kind: 'render', name: 'render:relative-image', src: '![i](img/a.png)', must: [/<img alt="i" src="img\/a\.png">/] },
+    { kind: 'render', name: 'render:parent-relative-image', src: '![i](../x.png)', must: [/<img alt="i" src="\.\.\/x\.png">/] },
+    { kind: 'render', name: 'render:heading-id', src: '# <b>x</b>', must: [/<h1 id="x">/] },
+
+    // --- raw self-check: proves the harness notices execution at all ---
+    { kind: 'raw', name: 'raw:selfcheck', html: `<img src="does-not-exist.png" onerror="${P}(${self})">`, must: [/<img/], expectFire: true },
+
+    // --- sanitizer: markup, mXSS and attribute policy (defence in depth) ---
+    { kind: 'sanitize', name: 'sanitize:img-onerror', html: `<img src=x onerror="${P}(${self})">`, must: [/<img src="x">/], mustNot: [/onerror/i] },
+    { kind: 'sanitize', name: 'sanitize:svg-onload', html: `<svg onload="${P}(${self})"><circle r=10></circle></svg>`, mustNot: [/<svg/i] },
+    { kind: 'sanitize', name: 'sanitize:mxss-math', html: `<math><mtext><table><mglyph><style><!--</style><img title="--><img src=1 onerror="${P}(${self})">">`, mustNot: [/<math/i, /<style/i, /onerror/i] },
+    { kind: 'sanitize', name: 'sanitize:mxss-form', html: `<form><math><mtext></form><form><mglyph><style></math><img src onerror="${P}(${self})">`, must: [/&lt;img src onerror/], mustNot: [/<form/i] },
+    { kind: 'sanitize', name: 'sanitize:svg-style', html: `<svg><style><img src=x onerror="${P}(${self})"></style></svg>`, mustNot: [/<svg/i, /<style/i, /onerror/i] },
+    { kind: 'sanitize', name: 'sanitize:noscript', html: `<noscript><p title="</noscript><img src=x onerror="${P}(${self})>">`, mustNot: [/<noscript/i, /onerror/i] },
+    { kind: 'sanitize', name: 'sanitize:details-ontoggle', html: `<details open ontoggle="${P}(${self})">x</details>`, must: [/<details open="">x<\/details>/], mustNot: [/ontoggle/i] },
+    { kind: 'sanitize', name: 'sanitize:href-tab', html: '<a href="java&#x09;script:alert(1)">x</a>', must: [/<a>x<\/a>/], mustNot: [/href=/] },
+    { kind: 'sanitize', name: 'sanitize:href-newline', html: '<a href="java&#x0a;script:alert(1)">x</a>', mustNot: [/href=/] },
+    { kind: 'sanitize', name: 'sanitize:href-uppercase', html: '<a href="JAVASCRIPT:alert(1)">x</a>', mustNot: [/href=/i] },
+    { kind: 'sanitize', name: 'sanitize:href-blob', html: '<a href="blob:http://127.0.0.1/x">x</a>', mustNot: [/href=/] },
+    { kind: 'sanitize', name: 'sanitize:href-chrome', html: '<a href="chrome-extension://abc/viewer.html">x</a>', mustNot: [/href=/] },
+    { kind: 'sanitize', name: 'sanitize:remote-image', html: '<img src="https://evil.example/p.png" alt="a">', must: [/<img alt="a">/], mustNot: [/src=/] },
+    { kind: 'sanitize', name: 'sanitize:protocol-image', html: '<img src="//evil.example/p.png" alt="a">', mustNot: [/src=/] },
+    { kind: 'sanitize', name: 'sanitize:root-image', html: '<img src="/etc/passwd" alt="a">', mustNot: [/src=/] },
+    { kind: 'sanitize', name: 'sanitize:srcset', html: '<img srcset="//evil.example/p.png 1x">', mustNot: [/srcset=/] },
+    { kind: 'sanitize', name: 'sanitize:form-action', html: '<form action="https://evil.example/f"><input type=submit></form>', mustNot: [/<form/i, /<input/i] },
+    { kind: 'sanitize', name: 'sanitize:base', html: '<base href="https://evil.example/">', mustNot: [/<base/i] },
+    { kind: 'sanitize', name: 'sanitize:style-import', html: '<style>@import url(https://evil.example/x.css);</style>', mustNot: [/<style/i] },
+    { kind: 'sanitize', name: 'sanitize:link-stylesheet', html: '<link rel=stylesheet href="https://evil.example/x.css">', mustNot: [/<link/i] },
+    { kind: 'sanitize', name: 'sanitize:meta-refresh', html: '<meta http-equiv="refresh" content="0;url=https://evil.example/">', mustNot: [/<meta/i] },
+    { kind: 'sanitize', name: 'sanitize:iframe-srcdoc', html: '<iframe srcdoc="<img src=x onerror=alert(1)>"></iframe>', mustNot: [/<iframe/i] },
+    { kind: 'sanitize', name: 'sanitize:template', html: `<template><img src=x onerror="${P}(${self})"></template>`, mustNot: [/<template/i] },
+    { kind: 'sanitize', name: 'sanitize:xmp', html: `<xmp><img src=x onerror="${P}(${self})"></xmp>`, mustNot: [/<xmp/i] },
+    { kind: 'sanitize', name: 'sanitize:plaintext', html: `<plaintext><img src=x onerror="${P}(${self})">`, mustNot: [/<plaintext/i] },
+    { kind: 'sanitize', name: 'sanitize:table-foster', html: `<table><tbody><tr><td><img src=x onerror="${P}(${self})">`, must: [/<table><tbody><tr><td><img src="x">/], mustNot: [/onerror/i] },
+    { kind: 'sanitize', name: 'sanitize:id-on-div', html: '<div id="document">x</div>', must: [/<div>x<\/div>/], mustNot: [/id=/] },
+    { kind: 'sanitize', name: 'sanitize:id-on-heading', html: '<h1 id="toc">x</h1>', must: [/<h1 id="toc">x<\/h1>/] },
+    { kind: 'sanitize', name: 'sanitize:id-bad-value', html: '<h1 id="a&quot; onx=1">x</h1>', must: [/<h1>x<\/h1>/], mustNot: [/onx/i] },
+    { kind: 'sanitize', name: 'sanitize:class-on-div', html: '<div class="mfv-pane">x</div>', must: [/<div>x<\/div>/], mustNot: [/class=/] },
+    { kind: 'sanitize', name: 'sanitize:class-on-p', html: '<p class="error">x</p>', mustNot: [/class=/] },
+    { kind: 'sanitize', name: 'sanitize:renderer-classes-kept', html: '<div class="mermaid-source" data-mermaid="1"><pre>x</pre></div><pre><code class="language-js">y</code></pre>', must: [/class="mermaid-source"/, /data-mermaid="1"/, /class="language-js"/] },
+    { kind: 'sanitize', name: 'sanitize:open-on-div', html: '<div open>x</div>', mustNot: [/open/] },
+    { kind: 'sanitize', name: 'sanitize:src-on-div', html: '<div src="https://evil.example/x">x</div>', mustNot: [/src=/] },
+    { kind: 'sanitize', name: 'sanitize:onclick-on-p', html: `<p onclick="${P}(${self})">x</p>`, must: [/<p>x<\/p>/], mustNot: [/onclick/i] },
+    { kind: 'sanitize', name: 'sanitize:marquee', html: `<marquee onstart="${P}(${self})">x</marquee>`, mustNot: [/<marquee/i, /onstart/i] },
+    { kind: 'sanitize', name: 'sanitize:isindex', html: '<isindex action="javascript:alert(1)" type=image>', mustNot: [/<isindex/i] },
+    { kind: 'sanitize', name: 'sanitize:keep-link-and-image', html: '<a href="sub/x.md" title="t">a</a><img src="img/a.png" alt="i" title="t">', must: [/href="sub\/x\.md"/, /src="img\/a\.png"/] },
+  ];
+
+  const results = [];
+  for (const c of cases) {
+    const stage = document.createElement('div');
+    document.body.appendChild(stage);
+    const problems = [];
+    let output = '';
+    const input = (c.src ?? c.html).replace(/__SELF__/g, c.name);
+    try {
+      if (c.kind === 'render') {
+        output = render(input).html;
+      } else if (c.kind === 'sanitize') {
+        output = sanitize(input);
+        // A sanitizer must be stable: re-parsing its own output must not
+        // produce new markup (mutation XSS).
+        const twice = sanitize(output);
+        if (twice !== output) problems.push('unstable re-parse: ' + twice.slice(0, 160));
+        output = twice;
+      } else {
+        output = input; // raw control case: inserted as-is on purpose
+      }
+      stage.innerHTML = output;
+    } catch (e) {
+      problems.push('threw: ' + e);
+    }
+    problems.push(...(c.kind === 'raw' ? [] : audit(stage)));
+    for (const re of c.must ?? []) if (!re.test(output)) problems.push('missing ' + re);
+    for (const re of c.mustNot ?? []) if (re.test(output)) problems.push('unexpected ' + re);
+    results.push({ name: c.name, expectFire: !!c.expectFire, problems, output: output.slice(0, 300) });
+    stage.remove();
+  }
+
+  // Give event handlers (onerror on the failing image) a chance to run: the
+  // raw self-check must actually fire, every other case must not.
+  setTimeout(() => {
+    const report = results.map((r) => {
+      const problems = [...r.problems];
+      const didFire = fired.includes(r.name);
+      if (didFire && !r.expectFire) problems.push('payload executed');
+      if (!didFire && r.expectFire) problems.push('self-check handler never fired');
+      return { name: r.name, problems, output: r.output };
+    });
+    document.getElementById('status').textContent = 'done';
+    document.getElementById('result').textContent = JSON.stringify({ fired, cases: report });
+  }, 500);
+})();
+</script>
+</body>
+</html>

@@ -10,6 +10,7 @@
   // page (see page.js). Only the tree is shown, and opening a file asks the
   // host page to navigate to its file:// URL.
   const hostUrl = new URLSearchParams(location.search).get('page');
+  const hostToken = new URLSearchParams(location.search).get('nonce') || '';
   const embedded = !!hostUrl;
   let hostRoot = null; // absolute disk path of rootHandle, derived from hostUrl
   const hostPath = embedded ? safeDecode(new URL(hostUrl).pathname) : null;
@@ -451,7 +452,9 @@
     const handle = await fileHandleFor(path);
     if (!handle) return;
     if (embedded) {
-      window.parent.postMessage({ type: 'mfv-open', url: hostFileUrl(path) }, '*');
+      // The host page checks origin, source frame and this token before it
+      // navigates, so no other frame can steer the tab.
+      window.parent.postMessage({ type: 'mfv-open', url: hostFileUrl(path), token: hostToken }, '*');
       return;
     }
     // The address bar shows the real path whenever the folder's disk location
@@ -542,7 +545,13 @@
 
     for (const img of article.querySelectorAll('img[src]')) {
       const src = img.getAttribute('src');
-      if (!src || /^(https?:|data:|blob:|\/\/)/i.test(src)) continue;
+      // Images are folder-relative only (sanitize() enforces the same rule).
+      // A scheme or a root-relative path would leave the device, so drop it
+      // instead of letting the browser fetch it.
+      if (!src || /^[a-z][a-z0-9+.\-]*:/i.test(src) || /^[\\/]/.test(src)) {
+        img.removeAttribute('src');
+        continue;
+      }
       const target = resolvePath(current, src);
       findHandle(target).then(async h => {
         if (!h) {

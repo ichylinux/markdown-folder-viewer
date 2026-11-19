@@ -1,13 +1,15 @@
 {
   "name": "markdown-folder-viewer",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "private": true,
   "description": "Local-only Chrome extension for browsing a folder of Markdown files.",
   "type": "module",
   "scripts": {
-    "test": "node --test test/*.mjs",
+    "test": "node --test test/*.mjs && node tools/test-dom.mjs",
+    "test:dom": "node tools/test-dom.mjs",
     "icons": "node tools/make-icons.mjs",
     "screenshots": "node tools/frame-screenshots.mjs",
-    "package": "node tools/package.mjs"
+    "package": "node tools/package.mjs",
+    "verify-package": "node tools/verify-package.mjs"
   }
 }

@@ -16,13 +16,33 @@
       .replace(/_([^_]+)_/g, '<em>$1</em>')
       .replace(/~~([^~]+)~~/g, '<del>$1</del>');
 
+  // URL policy. Markdown can come from an untrusted folder (a cloned
+  // repository, a downloaded attachment), so links may only be relative or use
+  // an explicit web/mail scheme, and images may only point inside the
+  // document's own folder. Remote images would send a request to a third party
+  // the moment the file is opened (tracking pixels, IP disclosure), so they are
+  // rendered as ordinary links the reader can follow on purpose.
+  //
   // Chrome strips control characters from URLs before parsing them, so do the
-  // same and then refuse script-capable schemes (defense in depth: sanitize()
-  // applies the same check to the rendered HTML).
-  const BAD_SCHEME = /^(javascript|vbscript|data|file):/i;
-  const safeUrl = u => {
-      const v = String(u).replace(/[\u0000-\u001f\u007f]/g, '').trim();
-      return BAD_SCHEME.test(v) ? '' : v;
+  // same and then check the scheme (defense in depth: sanitize() applies the
+  // same policy to the rendered HTML).
+  const STRIP_CONTROL = /[\u0000-\u001f\u007f]/g;
+  const SAFE_SCHEME = /^(?:https?|mailto|tel):/i;
+  const HAS_SCHEME = /^[a-z][a-z0-9+.\-]*:/i;
+  const stripControl = u => String(u).replace(STRIP_CONTROL, '').trim();
+
+  // Relative, http(s), mailto: and tel: only; javascript:, data:, file:,
+  // blob:, chrome:, chrome-extension: and friends are dropped.
+  const safeHref = u => {
+      const v = stripControl(u);
+      return v && HAS_SCHEME.test(v) && !SAFE_SCHEME.test(v) ? '' : v;
+  };
+
+  // Same-folder relative path only: a scheme or a leading slash (including
+  // //host) would reach the network or the filesystem root.
+  const safeSrc = u => {
+      const v = stripControl(u);
+      return !v || HAS_SCHEME.test(v) || /^[\\/]/.test(v) ? '' : v;
   };
 
   const inline = (s) => {
@@ -32,11 +52,16 @@
       let out = esc(String(s).replace(/\u0000/g, ''));
       out = out.replace(/`([^`]+)`/g, (_, code) => keep(`<code>${code}</code>`));
       out = out.replace(/!\[([^\]]*)\]\(([^\s)]+)(?:\s+"([^"]*)")?\)/g, (_, alt, url, title) => {
-          const src = safeUrl(url);
-          return keep(`<img alt="${alt}"${src ? ` src="${src}"` : ''}${title ? ` title="${title}"` : ''}>`);
+          const src = safeSrc(url);
+          const attr = title ? ` title="${title}"` : '';
+          if (src) return keep(`<img alt="${alt}" src="${src}"${attr}>`);
+          // Nothing is loaded for images outside the folder; an http(s) image
+          // stays reachable as a normal link instead of becoming a beacon.
+          const href = safeHref(url);
+          return href ? keep(`<a href="${href}"${attr}>${alt || href}</a>`) : keep(alt);
       });
       out = out.replace(/\[([^\]]+)\]\(([^\s)]+)(?:\s+"([^"]*)")?\)/g, (_, text, url, title) => {
-          const href = safeUrl(url);
+          const href = safeHref(url);
           return keep(`<a${href ? ` href="${href}"` : ''}${title ? ` title="${title}"` : ''}>${emph(text)}</a>`);
       });
       out = emph(out);
@@ -48,7 +73,13 @@
       return out;
   };
 
-  function render(src) {
+  // A crafted document can nest <details> or ">" thousands of times; stop
+  // recursing and show the rest as plain text instead of overflowing the stack
+  // (a denial of service against the viewer tab).
+  const MAX_DEPTH = 32;
+
+  function render(src, depth = 0) {
+    if (depth > MAX_DEPTH) return { html: `<pre>${esc(src)}</pre>`, headings: [] };
     const lines = String(src).replace(/\r\n?/g, '\n').split('\n');
     let out = '', i = 0;
     const headings = [], slugCounts = {};
@@ -99,13 +130,13 @@
       if (dOpen) {
           i++;
           const body = [];
-          let depth = 1, fenced = false;
+          let level = 1, fenced = false;
           while (i < lines.length) {
               const x = lines[i];
               if (isFence(x)) fenced = !fenced;
               else if (!fenced) {
-                  if (DETAILS_OPEN.test(x)) depth++;
-                  else if (DETAILS_CLOSE.test(x) && --depth === 0) break;
+                  if (DETAILS_OPEN.test(x)) level++;
+                  else if (DETAILS_CLOSE.test(x) && --level === 0) break;
               }
               body.push(x);
               i++;
@@ -131,7 +162,7 @@
               summary = parts.map(s => s.trim()).filter(Boolean).join(' ');
               body.splice(0, k);
           }
-          out += `<details${dOpen[1] ? ' open' : ''}>${summary ? `<summary>${inline(summary)}</summary>` : ''}${render(body.join('\n')).html}</details>`;
+          out += `<details${dOpen[1] ? ' open' : ''}>${summary ? `<summary>${inline(summary)}</summary>` : ''}${render(body.join('\n'), depth + 1).html}</details>`;
           continue;
       }
 
@@ -162,7 +193,7 @@
       if (isQuote(l)) {
           const q = [];
           while (i < lines.length && isQuote(lines[i])) q.push(lines[i++].replace(/^\s*>\s?/, ''));
-          out += `<blockquote>${render(q.join('\n')).html}</blockquote>`;
+          out += `<blockquote>${render(q.join('\n'), depth + 1).html}</blockquote>`;
           continue;
       }
 
@@ -197,29 +228,49 @@
     return { html: out, headings };
   }
 
+  // Exactly the tags the renderer emits. Anything else is reduced to its text,
+  // so a crafted document cannot smuggle markup or event handlers in.
+  const ALLOWED_TAGS = new Set(['A', 'P', 'BR', 'HR', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'STRONG', 'EM', 'DEL',
+      'CODE', 'PRE', 'BLOCKQUOTE', 'UL', 'OL', 'LI', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'IMG', 'DIV', 'DETAILS', 'SUMMARY']);
+  const HEADINGS = new Set(['H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
+  // Attributes are allowed per element: ids only on headings (so no DOM
+  // clobbering), classes only where the renderer puts them (language-* on code,
+  // mermaid-source on the diagram wrapper) and URLs only inside the folder or
+  // on a safe link scheme.
+  const ALLOWED_ATTRS = new Map([
+      ['A', new Set(['href', 'title'])],
+      ['IMG', new Set(['src', 'alt', 'title'])],
+      ['CODE', new Set(['class'])],
+      ['DIV', new Set(['class', 'data-mermaid'])],
+      ['DETAILS', new Set(['open'])],
+      ...[...HEADINGS].map(h => [h, new Set(['id'])]),
+  ]);
+
+  function attrAllowed(tag, name, value) {
+      const allowed = ALLOWED_ATTRS.get(tag);
+      if (!allowed || !allowed.has(name) || /^on/.test(name)) return false;
+      if (name === 'href') return !!value && safeHref(value) === value;
+      if (name === 'src') return !!value && safeSrc(value) === value;
+      if (name === 'id') return /^[\p{L}\p{N}_-]+$/u.test(value);
+      if (name === 'class') {
+          return tag === 'CODE' ? /^language-[a-z0-9_+-]+$/i.test(value) : value === 'mermaid-source';
+      }
+      if (name === 'data-mermaid') return value === '1';
+      return true;
+  }
+
   function sanitize(html) {
     const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
-    const allowed = new Set(['A', 'P', 'BR', 'HR', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'STRONG', 'EM', 'DEL',
-        'CODE', 'PRE', 'BLOCKQUOTE', 'UL', 'OL', 'LI', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'IMG', 'DIV', 'SPAN', 'DETAILS', 'SUMMARY']);
-    // data-mermaid marks fenced mermaid blocks for MfvRender.renderMermaid.
-    const attrs = new Set(['href', 'src', 'alt', 'title', 'id', 'class', 'open', 'data-mermaid']);
-    const badScheme = /^(javascript|vbscript|data|file):/i;
-    const stripControl = v => v.replace(/[\u0000-\u001f\u007f]/g, '');
 
     function clean(node) {
       for (const child of [...node.children]) {
-        if (!allowed.has(child.tagName)) {
+        if (!ALLOWED_TAGS.has(child.tagName)) {
             child.replaceWith(doc.createTextNode(child.textContent || ''));
             continue;
         }
         for (const a of [...child.attributes]) {
-            const name = a.name.toLowerCase();
-            if (!attrs.has(name) || /^on/.test(name)) { child.removeAttribute(a.name); continue; }
-            if (name === 'href' || name === 'src') {
-                // Chrome strips tabs/newlines from URLs before parsing them, so remove
-                // control characters first and only then check the scheme.
-                const v = stripControl(child.getAttribute(a.name) || '').trim();
-                if (!v || badScheme.test(v)) child.removeAttribute(a.name);
+            if (!attrAllowed(child.tagName, a.name.toLowerCase(), a.value)) {
+                child.removeAttribute(a.name);
             }
         }
         clean(child);

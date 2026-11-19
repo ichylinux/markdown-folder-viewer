@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>placeholder</title>
+<!-- Deferred scripts run after parsing, so page.js sees a body containing only
+     the <pre> that Chrome creates for a plain-text file (the scripts live in
+     <head> and are therefore not body children, exactly like a real page). -->
+<script defer src="../../markdown.js"></script>
+<script defer src="../../render.js"></script>
+<script defer src="page-stub.js"></script>
+<script defer src="../../page.js"></script>
+<script defer src="page-check.js"></script>
+</head>
+<body><pre># E2E Heading
+
+A [site](https://example.com/x) and a [local](sub/other.md).
+
+![local](sub/pic.png)
+
+![remote](https://tracker.example/p.png)
+
+&lt; not markup, just text
+
+&lt;img src=x onerror="document.title='pwned'"&gt;
+</pre></body>
+</html>

@@ -56,6 +56,56 @@ test('control characters cannot smuggle a scheme past the check', () => {
   assert.doesNotMatch(out, /href="javascript:/i);
 });
 
+test('remote images render as links so opening a file makes no request', () => {
+  const out = html('![logo](https://tracker.example/pixel.png)');
+  assert.match(out, /<a href="https:\/\/tracker\.example\/pixel\.png">logo<\/a>/);
+  assert.doesNotMatch(out, /<img/);
+  assert.doesNotMatch(out, /src=/);
+});
+
+test('protocol-relative images are not loaded either', () => {
+  const out = html('![logo](//tracker.example/pixel.png)');
+  assert.doesNotMatch(out, /<img/);
+  assert.match(out, /<a href="\/\/tracker\.example\/pixel\.png">logo<\/a>/);
+});
+
+test('images outside the folder are not loaded from disk', () => {
+  const out = html('![a](/etc/passwd)');
+  assert.doesNotMatch(out, /<img/);
+  assert.doesNotMatch(out, /src=/);
+});
+
+test('folder-relative images keep their src', () => {
+  assert.match(html('![a](img/x.png)'), /<img alt="a" src="img\/x\.png">/);
+  assert.match(html('![a](../x.png)'), /src="\.\.\/x\.png"/);
+});
+
+test('links allow only relative, http(s), mailto and tel targets', () => {
+  for (const url of ['javascript:x', 'JaVaScRiPt:x', 'data:text/html,x', 'file:///etc/passwd',
+    'blob:https://e.example/x', 'vbscript:x', 'chrome://settings', 'chrome-extension://abc/viewer.html',
+    'filesystem:https://e.example/x']) {
+    assert.doesNotMatch(html(`[l](${url})`), /href=/, url);
+  }
+  assert.match(html('[m](mailto:a@b.example)'), /href="mailto:a@b\.example"/);
+  assert.match(html('[t](tel:+123)'), /href="tel:\+123"/);
+  assert.match(html('[h](https://e.example/x)'), /href="https:\/\/e\.example\/x"/);
+  assert.match(html('[r](notes/a.md)'), /href="notes\/a\.md"/);
+  assert.match(html('[p](//e.example/a)'), /href="\/\/e\.example\/a"/);
+});
+
+test('deeply nested details is capped instead of overflowing the stack', () => {
+  const src = '<details>\n'.repeat(4000) + 'x\n' + '</details>\n'.repeat(4000);
+  const out = render(src).html;
+  assert.ok(out.includes('<pre>'), 'remaining nesting is shown as text');
+  assert.ok(out.split('<details>').length - 1 <= 40, 'recursion stops at the depth cap');
+});
+
+test('deeply nested blockquotes is capped instead of overflowing the stack', () => {
+  const out = render('>'.repeat(4000) + ' x').html;
+  assert.ok(out.includes('<pre>'), 'remaining nesting is shown as text');
+  assert.ok(out.split('<blockquote>').length - 1 <= 40, 'recursion stops at the depth cap');
+});
+
 test('normal relative and http links keep their href', () => {
   assert.match(html('[a](x.md)'), /href="x\.md"/);
   assert.match(html('[b](https://e.com/?a=1&b=2)'), /href="https:\/\/e\.com\/\?a=1&amp;b=2"/);
