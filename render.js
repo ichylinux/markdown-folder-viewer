@@ -2,9 +2,10 @@ window.MfvRender = (() => {
   function makeToc(headings, article) {
     article.querySelector('.toc')?.remove();
     if (!headings.length) return;
-    const box = document.createElement('div');
+    // Not part of the document itself, so it starts collapsed.
+    const box = document.createElement('details');
     box.className = 'toc';
-    const title = document.createElement('div');
+    const title = document.createElement('summary');
     title.className = 'toc-title';
     title.textContent = 'Contents';
     box.appendChild(title);

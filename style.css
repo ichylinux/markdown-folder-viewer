@@ -314,7 +314,7 @@ input[type=search] {
 
 /* Table of contents */
 
-.toc {
+.markdown-body .toc {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -322,8 +322,13 @@ input[type=search] {
   margin: 0 0 24px;
 }
 
-.toc-title {
+.markdown-body .toc-title {
   font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toc[open] .toc-title {
   margin-bottom: 5px;
 }
 
