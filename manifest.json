@@ -26,7 +26,7 @@
   "web_accessible_resources": [
     {
       "resources": ["viewer.html"],
-      "matches": ["file:///*.md", "file:///*.mdown", "file:///*.markdown"]
+      "matches": ["file:///*"]
     }
   ],
   "options_ui": {
