@@ -4,25 +4,40 @@ A local-only Chrome extension (Manifest V3) for browsing Markdown files under a 
 
 ## Screenshots
 
-Start page — saved folders and how to open a local Markdown file:
+<details>
+<summary>Start page — saved folders and how to open a local Markdown file</summary>
 
 ![Start page](store/screenshots/5-start.png)
 
-Folder tree, table of contents, and built-in Mermaid flowcharts:
+</details>
+
+<details>
+<summary>Folder tree, table of contents, and built-in Mermaid flowcharts</summary>
 
 ![Overview](store/screenshots/2-overview.png)
 
-First-time **Remember this folder** flow:
+</details>
+
+<details>
+<summary>First-time "Remember this folder" flow</summary>
 
 ![Onboarding](store/screenshots/3-onboarding.png)
 
-Top-level `README.md` as the folder landing page:
+</details>
+
+<details>
+<summary>Top-level README.md as the folder landing page</summary>
 
 ![README landing](store/screenshots/1-readme.png)
 
-Dark theme:
+</details>
+
+<details>
+<summary>Dark theme</summary>
 
 ![Dark theme](store/screenshots/4-release-dark.png)
+
+</details>
 
 ## Install
 1. Extract the ZIP to a folder.
