@@ -152,6 +152,22 @@ test('lists, quotes and ordered lists render', () => {
   assert.equal(html('> quoted'), '<blockquote><p>quoted</p></blockquote>');
 });
 
+test('ordered list items keep numbering across continuation lines and nested lists', () => {
+  assert.equal(
+    html('1. **a**\n   text\n   - x\n   - y\n   after\n2. b\n   more'),
+    '<ol><li><strong>a</strong><br>text<ul><li>x</li><li>y</li></ul><p>after</p></li><li>b<br>more</li></ol>',
+  );
+});
+
+test('ordered lists that do not start at 1 keep their start number', () => {
+  assert.equal(html('### h\n3. c\n4. d'), '<h3 id="h">h</h3><ol start="3"><li>c</li><li>d</li></ol>');
+});
+
+test('blank lines between items make a loose list', () => {
+  assert.equal(html('1. a\n\n2. b'), '<ol><li><p>a</p></li><li><p>b</p></li></ol>');
+  assert.equal(html('- a\n\n  more\n- b'), '<ul><li><p>a</p><p>more</p></li><li><p>b</p></li></ul>');
+});
+
 test('paragraph line breaks use <br>', () => {
   assert.equal(html('line1\nline2'), '<p>line1<br>line2</p>');
 });

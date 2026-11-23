@@ -99,6 +99,7 @@
     const isHr = l => /^\s*([-*_]\s*){3,}$/.test(l);
     const isQuote = l => /^\s*>/.test(l);
     const isList = l => /^\s*([-*+]\s+|\d+[.)]\s+)/.test(l);
+    const LIST_ITEM = /^(\s*)([-*+]|\d{1,9}[.)])(\s+)(.*)$/;
     const isTableStart = (a, b) => !!b
         && /^\s*\|?.+\|.+\|?\s*$/.test(a)
         && /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(b);
@@ -197,12 +198,49 @@
           continue;
       }
 
-      if (isList(l)) {
-          const ordered = /^\s*\d/.test(l);
+      const first = l.match(LIST_ITEM);
+      if (first) {
+          const ordered = /\d/.test(first[2]);
           const tag = ordered ? 'ol' : 'ul';
-          out += `<${tag}>`;
-          while (i < lines.length && new RegExp('^\\s*(' + (ordered ? '\\d+[.)]' : '[-*+]') + '\\s+)').test(lines[i])) {
-            out += `<li>${inline(lines[i++].replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)/, ''))}</li>`;
+          const base = first[1].length;
+          const indentOf = x => x.match(/^\s*/)[0].length;
+          const sameList = m => !!m && m[1].length === base && /\d/.test(m[2]) === ordered;
+          const start = ordered ? parseInt(first[2], 10) : 1;
+          const items = [];
+          let loose = false;
+          // Lines indented past the marker belong to the item (continuation
+          // text, nested lists); a blank line only ends the list if what follows
+          // is neither indented nor another item of this list.
+          while (i < lines.length) {
+              const m = lines[i].match(LIST_ITEM);
+              if (!sameList(m)) break;
+              const contentCol = m[1].length + m[2].length + m[3].length;
+              const body = [m[4]];
+              i++;
+              while (i < lines.length) {
+                  const x = lines[i];
+                  if (!x.trim()) {
+                      let k = i;
+                      while (k < lines.length && !lines[k].trim()) k++;
+                      if (k >= lines.length) { i = k; break; }
+                      if (indentOf(lines[k]) > base) {
+                          loose = true;
+                          while (i < k) { body.push(''); i++; }
+                          continue;
+                      }
+                      if (sameList(lines[k].match(LIST_ITEM))) { loose = true; i = k; }
+                      break;
+                  }
+                  if (indentOf(x) <= base) break;
+                  body.push(x.slice(Math.min(indentOf(x), contentCol)));
+                  i++;
+              }
+              items.push(body.join('\n'));
+          }
+          out += ordered && start !== 1 ? `<ol start="${start}">` : `<${tag}>`;
+          for (const body of items) {
+              const inner = render(body, depth + 1).html;
+              out += `<li>${loose ? inner : inner.replace(/^<p>([\s\S]*?)<\/p>/, '$1')}</li>`;
           }
           out += `</${tag}>`;
           continue;
@@ -243,6 +281,7 @@
       ['CODE', new Set(['class'])],
       ['DIV', new Set(['class', 'data-mermaid'])],
       ['DETAILS', new Set(['open'])],
+      ['OL', new Set(['start'])],
       ...[...HEADINGS].map(h => [h, new Set(['id'])]),
   ]);
 
@@ -256,6 +295,7 @@
           return tag === 'CODE' ? /^language-[a-z0-9_+-]+$/i.test(value) : value === 'mermaid-source';
       }
       if (name === 'data-mermaid') return value === '1';
+      if (name === 'start') return /^\d{1,9}$/.test(value);
       return true;
   }
 
