@@ -8,6 +8,12 @@ Bump `version` in both `manifest.json` and `package.json` when cutting a release
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-24
+
+### Added
+
+- The folder tree pane can be resized by dragging the border between the pane and the document, or with the arrow keys while the border is focused. Double-clicking the border restores the default width, and the width is remembered across navigations.
+
 ## [1.2.5] - 2026-11-23
 
 ### Added
@@ -114,5 +120,6 @@ Bump `version` in both `manifest.json` and `package.json` when cutting a release
 
 - Initial release: browse Markdown files under a selected folder with a folder tree, file filter, table of contents, relative links and images, and a built-in Mermaid flowchart subset renderer.
 
-[Unreleased]: https://github.com/ichylinux/markdown-folder-viewer/compare/v1.2.5...HEAD
+[Unreleased]: https://github.com/ichylinux/markdown-folder-viewer/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/ichylinux/markdown-folder-viewer/compare/v1.2.5...v1.3.0
 [1.2.5]: https://github.com/ichylinux/markdown-folder-viewer/compare/f8aea36...v1.2.5
