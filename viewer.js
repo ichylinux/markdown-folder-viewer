@@ -844,6 +844,8 @@
     document.body.classList.add('embedded');
     $('tree').before($('error'));
     showUnsaved('This file is not in a saved folder.');
+  } else {
+    MfvRender.sidebarResizer(document.querySelector('.layout'), document.querySelector('.sidebar'));
   }
 
   (async () => {

@@ -193,5 +193,73 @@ window.MfvRender = (() => {
     return { track };
   }
 
-  return { makeToc, renderMermaid, isReload, scrollKeeper };
+  // Draggable divider after `sidebar` that sets `layout`'s --sidebar-width.
+  // file:// pages reload on every navigation, so the width is stored.
+  function sidebarResizer(layout, sidebar) {
+    const KEY = 'mfv-sidebar-width';
+    const MIN = 160;
+    const handle = document.createElement('div');
+    handle.className = 'mfv-resizer';
+    handle.tabIndex = 0;
+    handle.title = 'Drag to resize the sidebar (double-click to reset)';
+    handle.setAttribute('role', 'separator');
+    handle.setAttribute('aria-orientation', 'vertical');
+    handle.setAttribute('aria-label', 'Resize sidebar');
+    sidebar.after(handle);
+
+    const width = () => Math.round(sidebar.getBoundingClientRect().width);
+    function set(px) {
+      layout.style.setProperty('--sidebar-width', Math.round(Math.max(MIN, px)) + 'px');
+      handle.setAttribute('aria-valuenow', String(width()));
+    }
+    function save() {
+      try { localStorage.setItem(KEY, String(width())); } catch { /* storage unavailable */ }
+    }
+
+    try {
+      const stored = Number(localStorage.getItem(KEY));
+      if (stored) set(stored);
+    } catch { /* storage unavailable: default width */ }
+
+    handle.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      handle.focus();
+      // Capture keeps the drag going while the pointer is over an iframe.
+      handle.setPointerCapture(e.pointerId);
+      const startX = e.clientX;
+      const startWidth = width();
+      document.documentElement.classList.add('mfv-resizing');
+      const move = ev => set(startWidth + ev.clientX - startX);
+      const end = () => {
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', end);
+        handle.removeEventListener('pointercancel', end);
+        document.documentElement.classList.remove('mfv-resizing');
+        save();
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', end);
+      handle.addEventListener('pointercancel', end);
+    });
+
+    handle.addEventListener('keydown', e => {
+      const step = e.shiftKey ? 64 : 16;
+      if (e.key === 'ArrowLeft') set(width() - step);
+      else if (e.key === 'ArrowRight') set(width() + step);
+      else return;
+      e.preventDefault();
+      save();
+    });
+
+    handle.addEventListener('dblclick', () => {
+      layout.style.removeProperty('--sidebar-width');
+      handle.setAttribute('aria-valuenow', String(width()));
+      try { localStorage.removeItem(KEY); } catch { /* storage unavailable */ }
+    });
+
+    handle.setAttribute('aria-valuenow', String(width()));
+  }
+
+  return { makeToc, renderMermaid, isReload, scrollKeeper, sidebarResizer };
 })();

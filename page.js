@@ -37,6 +37,7 @@
 
   body.replaceChildren(pane, article);
   body.className = 'mfv-page';
+  MfvRender.sidebarResizer(body, pane);
   document.title = parsed.headings[0]?.text || decodeURIComponent(location.pathname.split('/').pop());
 
   if (location.hash) {

@@ -25,6 +25,17 @@
     if (!article.querySelector('a[href="sub/other.md"]')) problems.push('relative link lost');
   }
 
+  const resizer = document.querySelector('.mfv-resizer');
+  if (!resizer) problems.push('sidebar resizer missing');
+  else if (pane) {
+    resizer.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true }));
+    const wide = pane.getBoundingClientRect().width;
+    resizer.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    if (wide !== 354) problems.push('resizer did not widen the pane: ' + wide);
+    if (pane.getBoundingClientRect().width !== 290) problems.push('double-click did not reset the pane');
+    if (Math.abs(resizer.getBoundingClientRect().left + 3 - 290) > 1) problems.push('resizer is not on the boundary');
+  }
+
   const src = pane?.getAttribute('src') || '';
   try {
     const url = new URL(src);

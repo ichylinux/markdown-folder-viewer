@@ -81,9 +81,42 @@ input[type=search] {
 /* Layout and sidebar */
 
 .layout {
+  --sidebar-col: min(var(--sidebar-width, 290px), calc(100% - 240px));
+  position: relative;
   display: grid;
-  grid-template-columns: 290px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-col) minmax(0, 1fr);
   height: calc(100vh - 58px);
+}
+
+/* Sidebar resizer */
+
+.mfv-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--sidebar-col) - 3px);
+  width: 6px;
+  z-index: 1;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.mfv-resizer:hover,
+.mfv-resizer:focus-visible,
+.mfv-resizing .mfv-resizer {
+  background: var(--accent);
+  opacity: .5;
+  outline: none;
+}
+
+.mfv-resizing,
+.mfv-resizing * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+.mfv-resizing iframe {
+  pointer-events: none;
 }
 
 .sidebar {
@@ -404,7 +437,7 @@ input[type=search] {
   .layout {
     height: auto;
     min-height: calc(100vh - 90px);
-    grid-template-columns: 210px minmax(0, 1fr);
+    --sidebar-col: min(var(--sidebar-width, 210px), calc(100% - 240px));
   }
 
   .reader {
@@ -512,8 +545,10 @@ body.embedded #error h2 {
 /* MFV page */
 
 body.mfv-page {
+  --sidebar-col: min(var(--sidebar-width, 290px), calc(100% - 240px));
+  position: relative;
   display: grid;
-  grid-template-columns: 290px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-col) minmax(0, 1fr);
   height: 100vh;
   overflow: hidden;
 }

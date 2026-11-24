@@ -54,6 +54,8 @@ The main entry point is a `file://` Markdown page, such as `file:///home/me/note
 
 Chrome reveals only a picked folder's name, not its location, so the pane takes the location from the open file's path and records the folder automatically once it has confirmed that the folder really contains the open file. Saved folders are listed in the pane and open with one click; opening any file under a saved folder from the address bar also switches the tree to it. When the current folder already contains the open file, **Remember this folder** saves the file's parent folder without a picker; after the first visit no extra click is needed. Clicking a file in the tree navigates the tab to that file's `file://` URL, so the address bar shows the real path. This also applies when the viewer is opened normally (for example from the toolbar popup), because the folder's location has already been learned. Expanded folders are remembered across navigations.
 
+Drag the border between the pane and the document to resize the pane (or focus it and use the arrow keys); double-click the border to restore the default width. The width is remembered across navigations.
+
 ### Toolbar popup
 **Open viewer** opens a start page that lists saved folders (and the last used folder) and explains how to open a Markdown file. It deliberately offers no folder picker: Chrome never reveals the location of a folder picked there, so the folder could neither be saved with its path nor open files as `file://` pages. To add a folder, open a Markdown file from it in Chrome once; it is recorded automatically after that.
 
