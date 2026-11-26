@@ -751,6 +751,10 @@
 
   async function forgetFolder(entry) {
     await storeSaved(savedFolders.filter(e => e !== entry));
+    // Otherwise the next load reopens it as the last folder and, since it
+    // contains the open file, remembers it again.
+    const last = await loadHandle();
+    if (last && await entry.handle.isSameEntry(last).catch(() => false)) await saveHandle(null);
     updateLocationNote();
   }
 
