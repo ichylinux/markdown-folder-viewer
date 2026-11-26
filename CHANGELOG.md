@@ -8,6 +8,12 @@ Bump `version` in both `manifest.json` and `package.json` when cutting a release
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-26
+
+### Fixed
+
+- Forgetting a folder clears it as the last-opened folder when it was still remembered that way, so reloading the extension no longer reopens and saves it again.
+
 ## [1.3.0] - 2026-11-24
 
 ### Added
@@ -120,6 +126,7 @@ Bump `version` in both `manifest.json` and `package.json` when cutting a release
 
 - Initial release: browse Markdown files under a selected folder with a folder tree, file filter, table of contents, relative links and images, and a built-in Mermaid flowchart subset renderer.
 
-[Unreleased]: https://github.com/ichylinux/markdown-folder-viewer/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/ichylinux/markdown-folder-viewer/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/ichylinux/markdown-folder-viewer/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/ichylinux/markdown-folder-viewer/compare/v1.2.5...v1.3.0
 [1.2.5]: https://github.com/ichylinux/markdown-folder-viewer/compare/f8aea36...v1.2.5
