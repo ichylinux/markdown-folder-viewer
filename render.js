@@ -145,31 +145,48 @@ window.MfvRender = (() => {
   // Saves `scroller`'s position under the current key and can put it back.
   // Late layout changes (images, diagrams) would clamp the position, so the
   // target is re-applied for a short while unless the user scrolls first.
+  // The key is the file's base key plus the URL fragment, so back/forward
+  // between in-page anchors returns to each entry's own position.
   function scrollKeeper(scroller) {
+    let base = null;
     let key = null;
+    let content = null;
     let restoring = false;
     let frame = 0;
+    let traversing = false;
     let stop = () => {};
+
+    try { history.scrollRestoration = 'manual'; } catch { /* unavailable */ }
+
+    function save() {
+      try { sessionStorage.setItem(key, String(scroller.scrollTop)); } catch { /* storage unavailable */ }
+    }
 
     scroller.addEventListener('scroll', () => {
       if (!key || restoring || frame) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
-        try { sessionStorage.setItem(key, String(scroller.scrollTop)); } catch { /* storage unavailable */ }
+        if (key) save();
       });
     });
 
-    // Start tracking `content` (the scroller or its child) under `newKey`;
-    // with `restore`, jump to the position saved for that key first.
-    function track(newKey, content, restore) {
-      stop();
-      key = newKey;
-      let target = 0;
-      if (restore) {
-        try { target = Number(sessionStorage.getItem(newKey)) || 0; } catch { /* storage unavailable */ }
-      }
-      if (!target) return;
+    function savedScroll(storageKey) {
+      try {
+        const raw = sessionStorage.getItem(storageKey);
+        if (raw !== null) return Number(raw) || 0;
+      } catch { /* storage unavailable */ }
+      return null;
+    }
 
+    function scrollToFragment() {
+      if (!location.hash) return;
+      try {
+        document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView();
+      } catch { /* malformed fragment */ }
+    }
+
+    function applyRestore(target) {
+      stop();
       restoring = true;
       const apply = () => { if (Math.abs(scroller.scrollTop - target) > 1) scroller.scrollTop = target; };
       const observer = new ResizeObserver(apply);
@@ -188,6 +205,39 @@ window.MfvRender = (() => {
       observer.observe(content);
       for (const child of content.children) observer.observe(child);
       apply();
+    }
+
+    // The fragment jump scrolls before `hashchange`, so the old entry's
+    // position has to be written now and saving paused until the key moves.
+    window.navigation?.addEventListener('navigate', e => {
+      if (!e.hashChange || !key) return;
+      cancelAnimationFrame(frame);
+      frame = 0;
+      stop();
+      save();
+      key = null;
+      traversing = e.navigationType === 'traverse';
+    });
+
+    window.addEventListener('hashchange', () => {
+      if (!base) return;
+      key = base + location.hash;
+      if (!traversing) return save();
+      traversing = false;
+      const target = savedScroll(key);
+      if (target !== null) applyRestore(target);
+      else scrollToFragment();
+    });
+
+    // Start tracking `doc` (the scroller or its child) under `baseKey`; with
+    // `restore`, jump to the position saved for the current entry first.
+    function track(baseKey, doc, restore) {
+      stop();
+      base = baseKey;
+      key = baseKey + location.hash;
+      content = doc;
+      const target = restore ? savedScroll(key) : null;
+      if (target) applyRestore(target);
     }
 
     return { track };

@@ -40,7 +40,8 @@
   MfvRender.sidebarResizer(body, pane);
   document.title = parsed.headings[0]?.text || decodeURIComponent(location.pathname.split('/').pop());
 
-  if (location.hash) {
+  const reload = MfvRender.isReload();
+  if (location.hash && !reload) {
     try {
       document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView();
     } catch { /* malformed fragment: stay at the top */ }
@@ -48,7 +49,7 @@
 
   // Reloading (or going back) returns to where the reader was, which wins
   // over the fragment's position.
-  MfvRender.scrollKeeper(article).track('mfv-scroll:' + location.href.split('#')[0], article, MfvRender.isReload());
+  MfvRender.scrollKeeper(article).track('mfv-scroll:' + location.href.split('#')[0], article, reload);
 
   // Only from the pane we created, and only for a file:// URL. The viewer
   // builds those URLs from handles inside the opened folder.

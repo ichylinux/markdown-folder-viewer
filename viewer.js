@@ -448,7 +448,7 @@
     else history.replaceState(null, '', url);
   }
 
-  async function openFile(path, { push = true } = {}) {
+  async function openFile(path, { push = true, restore = false } = {}) {
     const handle = await fileHandleFor(path);
     if (!handle) return;
     if (embedded) {
@@ -480,7 +480,7 @@
       resolveLinks(article, path);
       renderMermaid(article);
       updateActive();
-      scrollKeeper.track('mfv-scroll:' + path, article, restoreScroll);
+      scrollKeeper.track('mfv-scroll:' + path, article, restore || restoreScroll);
       restoreScroll = false;
     } catch (e) {
       showError('Could not read file: ' + e.message);
@@ -813,7 +813,7 @@
   $('search').value = searchTerm;
   window.addEventListener('popstate', () => {
     const path = pathFromUrl();
-    if (path && path !== activePath) openFile(path, { push: false });
+    if (path && path !== activePath) openFile(path, { push: false, restore: true });
   });
   async function loadSavedFolders() {
     savedFolders = (await loadHandle('saved')) || [];
