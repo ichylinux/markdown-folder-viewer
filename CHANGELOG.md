@@ -8,6 +8,12 @@ Bump `version` in both `manifest.json` and `package.json` when cutting a release
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-11-28
+
+### Fixed
+
+- In-page anchor links and the browser back button restore the previous scroll position in the reader (viewer and `file://` Markdown pages), including when moving back to another file in the folder viewer.
+
 ## [1.3.1] - 2026-11-26
 
 ### Fixed
